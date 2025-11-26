@@ -1,0 +1,5 @@
+## ESP-IDF Component Manager
+## https://docs.espressif.com/projects/esp-idf/en/latest/esp32/api-guides/tools/idf-component-manager.html
+
+dependencies:
+  espressif/led_strip: "^2.4"

@@ -1,0 +1,1648 @@
+<!DOCTYPE html>
+<html lang="en" data-bs-theme="dark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; font-src 'self' https://cdn.jsdelivr.net; script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; img-src 'self' data:; connect-src 'self';">
+    <meta http-equiv="X-Content-Type-Options" content="nosniff">
+    <meta http-equiv="X-Frame-Options" content="DENY">
+    <meta http-equiv="X-XSS-Protection" content="1; mode=block">
+    <title>Fermenter Controller - Admin</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet" crossorigin="anonymous">
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.1/font/bootstrap-icons.css" rel="stylesheet" crossorigin="anonymous">
+    <style>
+        body { background-color: #1a1d21; }
+        .card { background-color: #212529; border-color: #343a40; }
+        .card-header { background-color: #2d3238; border-color: #343a40; }
+        .sensor-value { font-size: 1.5rem; font-weight: bold; }
+        .status-good { color: #198754; }
+        .status-bad { color: #dc3545; }
+        .status-warning { color: #ffc107; }
+        .relay-on { background-color: #198754 !important; }
+        .relay-off { background-color: #6c757d !important; }
+        .nav-pills .nav-link.active { background-color: #0d6efd; }
+        .console-output {
+            background-color: #000;
+            color: #00ff00;
+            font-family: monospace;
+            padding: 1rem;
+            height: 300px;
+            overflow-y: auto;
+            white-space: pre-wrap;
+        }
+        .fermenter-card:hover { border-color: #0d6efd !important; cursor: pointer; }
+        .login-container { max-width: 400px; margin: 100px auto; }
+        #app { display: none; }
+        .loading { text-align: center; padding: 100px; }
+    </style>
+</head>
+<body>
+    <!-- Setup Form (First Boot) -->
+    <div id="setup" class="container login-container" style="display: none;">
+        <div class="card">
+            <div class="card-header text-center">
+                <h4><i class="bi bi-shield-lock"></i> First-Time Setup</h4>
+            </div>
+            <div class="card-body">
+                <p class="text-muted mb-3">Create an admin password to secure your device.</p>
+                <form id="setupForm">
+                    <div class="mb-3">
+                        <label for="setupPassword" class="form-label">Password</label>
+                        <input type="password" class="form-control" id="setupPassword" placeholder="Create password" required>
+                    </div>
+                    <div class="mb-3">
+                        <label for="setupConfirm" class="form-label">Confirm Password</label>
+                        <input type="password" class="form-control" id="setupConfirm" placeholder="Confirm password" required>
+                    </div>
+                    <div class="alert alert-info small">
+                        <i class="bi bi-info-circle"></i> Password must be at least 8 characters with 2 of: uppercase, lowercase, digit.
+                    </div>
+                    <div class="d-grid">
+                        <button type="submit" class="btn btn-success">
+                            <i class="bi bi-check-lg"></i> Create Password
+                        </button>
+                    </div>
+                    <div id="setupError" class="alert alert-danger mt-3" style="display: none;"></div>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <!-- Login Form -->
+    <div id="login" class="container login-container" style="display: none;">
+        <div class="card">
+            <div class="card-header text-center">
+                <h4><i class="bi bi-lock"></i> Admin Login</h4>
+            </div>
+            <div class="card-body">
+                <form id="loginForm">
+                    <div class="mb-3">
+                        <label for="password" class="form-label">Password</label>
+                        <input type="password" class="form-control" id="password" placeholder="Enter admin password" required>
+                    </div>
+                    <div class="d-grid">
+                        <button type="submit" class="btn btn-primary">
+                            <i class="bi bi-box-arrow-in-right"></i> Login
+                        </button>
+                    </div>
+                    <div id="loginError" class="alert alert-danger mt-3" style="display: none;"></div>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <!-- Main App -->
+    <div id="app">
+        <!-- Navbar -->
+        <nav class="navbar navbar-expand-lg navbar-dark bg-dark border-bottom border-secondary">
+            <div class="container-fluid">
+                <a class="navbar-brand" href="#">
+                    <i class="bi bi-gear-fill"></i> Fermenter Controller
+                </a>
+                <div class="navbar-nav ms-auto">
+                    <span id="connectionStatus" class="nav-item badge bg-secondary me-2">Disconnected</span>
+                    <button class="btn btn-outline-danger btn-sm" onclick="logout()">
+                        <i class="bi bi-box-arrow-right"></i> Logout
+                    </button>
+                </div>
+            </div>
+        </nav>
+
+        <div class="container-fluid mt-3">
+            <div class="row">
+                <!-- Sidebar Navigation -->
+                <div class="col-md-2">
+                    <div class="nav flex-column nav-pills">
+                        <button class="nav-link active" data-bs-toggle="pill" data-target="status">
+                            <i class="bi bi-speedometer2"></i> Status
+                        </button>
+                        <button class="nav-link" data-bs-toggle="pill" data-target="sensors">
+                            <i class="bi bi-activity"></i> Sensors
+                        </button>
+                        <button class="nav-link" data-bs-toggle="pill" data-target="config">
+                            <i class="bi bi-gear"></i> Config
+                        </button>
+                        <button class="nav-link" data-bs-toggle="pill" data-target="settings">
+                            <i class="bi bi-shield-lock"></i> Settings
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Main Content -->
+                <div class="col-md-10">
+                    <!-- Status Panel -->
+                    <div id="panel-status" class="panel">
+                        <div class="card mb-3">
+                            <div class="card-header">
+                                <strong id="status-version">Fermenter Controller v1.0.0</strong>
+                                <span class="text-muted ms-2" id="status-build">(build 251124)</span>
+                            </div>
+                            <div class="card-body">
+                                <div id="status-built" class="text-muted small mb-2">Built: Nov 24 2025 14:30:00</div>
+                                <div class="row mt-2">
+                                    <div class="col-3">
+                                        <span class="text-muted small">Flash:</span>
+                                        <span id="status-flash" class="fw-bold small">--</span>
+                                    </div>
+                                    <div class="col-3">
+                                        <div class="progress" style="height: 8px; margin-top: 6px;">
+                                            <div id="status-flash-bar" class="progress-bar" role="progressbar" style="width: 0%"></div>
+                                        </div>
+                                    </div>
+                                    <div class="col-6 text-end">
+                                        <span class="text-muted small">CPU:</span>
+                                        <span id="status-cpu" class="fw-bold small">--</span>
+                                        <span class="text-muted small">@</span>
+                                        <span id="status-cpu-freq" class="small">--</span>
+                                    </div>
+                                </div>
+                                <!-- CPU History Graph -->
+                                <div class="mt-3">
+                                    <span class="text-muted small">CPU History (30 min)</span>
+                                    <div class="position-relative" style="height: 100px;">
+                                        <canvas id="cpu-graph" style="width: 100%; height: 100%;"></canvas>
+                                        <div id="cpu-tooltip" class="position-absolute bg-dark text-white px-2 py-1 rounded small" style="display: none; pointer-events: none; z-index: 10;"></div>
+                                    </div>
+                                </div>
+                                <!-- Network Bandwidth Graph -->
+                                <div class="mt-3">
+                                    <span class="text-muted small">Network (30 min) - <span id="wifi-speed">--</span> Mbps, Ch <span id="wifi-channel">--</span></span>
+                                    <div class="position-relative" style="height: 100px;">
+                                        <canvas id="network-graph" style="width: 100%; height: 100%;"></canvas>
+                                        <div id="network-tooltip" class="position-absolute bg-dark text-white px-2 py-1 rounded small" style="display: none; pointer-events: none; z-index: 10;"></div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <h5>System</h5>
+                        <div class="row">
+                            <div class="col-md-3">
+                                <div class="card mb-3">
+                                    <div class="card-body text-center">
+                                        <h6 class="text-muted">Uptime</h6>
+                                        <div id="status-uptime" class="sensor-value">--</div>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="col-md-3">
+                                <div class="card mb-3">
+                                    <div class="card-body text-center">
+                                        <h6 class="text-muted">Free Heap</h6>
+                                        <div id="status-heap" class="sensor-value">--</div>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="col-md-3">
+                                <div class="card mb-3">
+                                    <div class="card-body text-center">
+                                        <h6 class="text-muted">Sensors</h6>
+                                        <div id="status-sensors" class="sensor-value">--</div>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="col-md-3">
+                                <div class="card mb-3">
+                                    <div class="card-body text-center">
+                                        <h6 class="text-muted">Fermenters</h6>
+                                        <div id="status-fermenters" class="sensor-value">--</div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <h5>Connectivity</h5>
+                        <div class="row">
+                            <div class="col-md-3">
+                                <div class="card mb-3">
+                                    <div class="card-body text-center">
+                                        <h6 class="text-muted">WiFi</h6>
+                                        <div id="status-wifi" class="sensor-value">--</div>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="col-md-3">
+                                <div class="card mb-3">
+                                    <div class="card-body text-center">
+                                        <h6 class="text-muted">NTP</h6>
+                                        <div id="status-ntp" class="sensor-value">--</div>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="col-md-3">
+                                <div class="card mb-3">
+                                    <div class="card-body text-center">
+                                        <h6 class="text-muted">System Time</h6>
+                                        <div id="status-time" class="fw-bold" style="font-size: 1.1rem;">--</div>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="col-md-3">
+                                <div class="card mb-3">
+                                    <div class="card-body text-center">
+                                        <h6 class="text-muted">Timezone</h6>
+                                        <div id="status-timezone" class="fw-bold" style="font-size: 1.1rem;">--</div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <h5>Bus Status</h5>
+                        <div class="row mb-3">
+                            <div class="col-md-6">
+                                <div class="card">
+                                    <div class="card-header">
+                                        <strong>MODBUS RTU</strong>
+                                    </div>
+                                    <div class="card-body">
+                                        <div class="row text-center">
+                                            <div class="col-4">
+                                                <div class="text-muted small">Transactions</div>
+                                                <div id="status-modbus-tx" class="fw-bold">--</div>
+                                            </div>
+                                            <div class="col-4">
+                                                <div class="text-muted small">Errors</div>
+                                                <div id="status-modbus-err" class="fw-bold">--</div>
+                                            </div>
+                                            <div class="col-4">
+                                                <div class="text-muted small">Error Rate</div>
+                                                <div id="status-modbus-rate" class="fw-bold">--</div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="col-md-6">
+                                <div class="card">
+                                    <div class="card-header">
+                                        <strong>CAN Bus</strong>
+                                        <span id="status-can-state" class="badge bg-secondary float-end">OFFLINE</span>
+                                    </div>
+                                    <div class="card-body">
+                                        <div class="row text-center">
+                                            <div class="col-4">
+                                                <div class="text-muted small">TX</div>
+                                                <div id="status-can-tx" class="fw-bold">--</div>
+                                            </div>
+                                            <div class="col-4">
+                                                <div class="text-muted small">RX</div>
+                                                <div id="status-can-rx" class="fw-bold">--</div>
+                                            </div>
+                                            <div class="col-4">
+                                                <div class="text-muted small">Errors</div>
+                                                <div id="status-can-err" class="fw-bold">--</div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <h5>Alarms</h5>
+                        <div id="alarms-container" class="mb-3">
+                            <span class="text-muted">No active alarms</span>
+                        </div>
+
+                        <div class="row">
+                            <div class="col-md-6">
+                                <h5>Digital Inputs</h5>
+                                <div class="card mb-3">
+                                    <div class="card-body">
+                                        <div id="inputs-status-list"></div>
+                                    </div>
+                                </div>
+
+                                <h5>Compiled Modules</h5>
+                                <div class="card">
+                                    <div class="card-body">
+                                        <div id="modules-status-list"></div>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="col-md-6">
+                                <h5>Digital Outputs (DO1-DO8)</h5>
+                                <div class="card">
+                                    <div class="card-body">
+                                        <div id="outputs-status-list"></div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Sensors Panel -->
+                    <div id="panel-sensors" class="panel" style="display: none;">
+                        <h4>Sensor Configuration</h4>
+                        <div class="table-responsive">
+                            <table class="table table-dark table-hover">
+                                <thead>
+                                    <tr>
+                                        <th>Name</th>
+                                        <th>MODBUS Address</th>
+                                        <th>Current Value</th>
+                                        <th>Quality</th>
+                                        <th>Type</th>
+                                        <th>Actions</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="sensors-table-body">
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+
+                    <!-- Relays Panel -->
+                    <div id="panel-relays" class="panel" style="display: none;">
+                        <h4>Relay Control</h4>
+                        <div id="relays-list" class="row"></div>
+                    </div>
+
+                    <!-- GPIO Panel -->
+                    <div id="panel-gpio" class="panel" style="display: none;">
+                        <h4>GPIO</h4>
+                        <div class="row">
+                            <div class="col-md-6">
+                                <h5>Digital Inputs</h5>
+                                <div id="inputs-list"></div>
+                            </div>
+                            <div class="col-md-6">
+                                <h5>Digital Outputs</h5>
+                                <div id="outputs-list"></div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- MODBUS Panel -->
+                    <div id="panel-modbus" class="panel" style="display: none;">
+                        <h4>MODBUS Statistics</h4>
+                        <div class="row">
+                            <div class="col-md-4">
+                                <div class="card">
+                                    <div class="card-body text-center">
+                                        <h6 class="text-muted">Transactions</h6>
+                                        <div id="modbus-transactions" class="sensor-value">--</div>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="col-md-4">
+                                <div class="card">
+                                    <div class="card-body text-center">
+                                        <h6 class="text-muted">Errors</h6>
+                                        <div id="modbus-errors" class="sensor-value">--</div>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="col-md-4">
+                                <div class="card">
+                                    <div class="card-body text-center">
+                                        <h6 class="text-muted">Error Rate</h6>
+                                        <div id="modbus-error-rate" class="sensor-value">--</div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Config Panel -->
+                    <div id="panel-config" class="panel" style="display: none;">
+                        <h4>Configuration</h4>
+                        <div id="config-display"></div>
+                    </div>
+
+                    <!-- System Panel -->
+                    <div id="panel-system" class="panel" style="display: none;">
+                        <h4>System</h4>
+                        <div class="row">
+                            <div class="col-md-6">
+                                <h5>Compiled Modules</h5>
+                                <div id="modules-list"></div>
+                            </div>
+                            <div class="col-md-6">
+                                <h5>Actions</h5>
+                                <button class="btn btn-warning mb-2 w-100" onclick="reboot()">
+                                    <i class="bi bi-arrow-clockwise"></i> Reboot System
+                                </button>
+                                <button class="btn btn-info mb-2 w-100" onclick="refreshAll()">
+                                    <i class="bi bi-arrow-repeat"></i> Refresh All Data
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Settings Panel -->
+                    <div id="panel-settings" class="panel" style="display: none;">
+                        <h4>Settings</h4>
+                        <div class="row">
+                            <div class="col-md-6">
+                                <div class="card">
+                                    <div class="card-header">
+                                        <i class="bi bi-key"></i> Change Password
+                                    </div>
+                                    <div class="card-body">
+                                        <form id="changePasswordForm">
+                                            <div class="mb-3">
+                                                <label for="currentPassword" class="form-label">Current Password</label>
+                                                <input type="password" class="form-control" id="currentPassword" required>
+                                            </div>
+                                            <div class="mb-3">
+                                                <label for="newPassword" class="form-label">New Password</label>
+                                                <input type="password" class="form-control" id="newPassword" required>
+                                            </div>
+                                            <div class="mb-3">
+                                                <label for="confirmNewPassword" class="form-label">Confirm New Password</label>
+                                                <input type="password" class="form-control" id="confirmNewPassword" required>
+                                            </div>
+                                            <div class="alert alert-info small">
+                                                <i class="bi bi-info-circle"></i> Password must be at least 8 characters with 2 of: uppercase, lowercase, digit.
+                                            </div>
+                                            <button type="submit" class="btn btn-primary">
+                                                <i class="bi bi-check-lg"></i> Change Password
+                                            </button>
+                                            <div id="passwordChangeResult" class="mt-3" style="display: none;"></div>
+                                        </form>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="col-md-6">
+                                <div class="card">
+                                    <div class="card-header">
+                                        <i class="bi bi-exclamation-triangle"></i> Danger Zone
+                                    </div>
+                                    <div class="card-body">
+                                        <button class="btn btn-danger w-100" onclick="factoryReset()">
+                                            <i class="bi bi-trash"></i> Factory Reset
+                                        </button>
+                                        <small class="text-muted d-block mt-2">This will clear all settings including WiFi credentials and password.</small>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Fermenter Detail Modal -->
+    <div class="modal fade" id="fermenterModal" tabindex="-1">
+        <div class="modal-dialog">
+            <div class="modal-content bg-dark">
+                <div class="modal-header">
+                    <h5 class="modal-title">Fermenter Settings</h5>
+                    <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <input type="hidden" id="modal-fermenter-id">
+                    <div class="mb-3">
+                        <label class="form-label">Temperature Setpoint (°C)</label>
+                        <input type="number" class="form-control" id="modal-setpoint" step="0.1">
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">Mode</label>
+                        <select class="form-select" id="modal-mode">
+                            <option value="OFF">OFF</option>
+                            <option value="MANUAL">MANUAL</option>
+                            <option value="PLAN">PLAN</option>
+                        </select>
+                    </div>
+                    <hr>
+                    <h6>PID Parameters</h6>
+                    <div class="row">
+                        <div class="col-4">
+                            <label class="form-label">Kp</label>
+                            <input type="number" class="form-control" id="modal-kp" step="0.001">
+                        </div>
+                        <div class="col-4">
+                            <label class="form-label">Ki</label>
+                            <input type="number" class="form-control" id="modal-ki" step="0.001">
+                        </div>
+                        <div class="col-4">
+                            <label class="form-label">Kd</label>
+                            <input type="number" class="form-control" id="modal-kd" step="0.001">
+                        </div>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                    <button type="button" class="btn btn-primary" onclick="saveFermenterSettings()">Save</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js" crossorigin="anonymous"></script>
+    <script>
+        // Configuration
+        const API_BASE = window.location.origin + '/api';
+        let authToken = localStorage.getItem('authToken');
+        let refreshInterval = null;
+        let cpuGraphInterval = null;
+        let networkGraphInterval = null;
+
+        // Security: HTML escaping utility
+        function escapeHtml(text) {
+            if (text == null) return '';
+            const div = document.createElement('div');
+            div.textContent = String(text);
+            return div.innerHTML;
+        }
+
+        // Security: Validate numeric input
+        function validateNumber(value, min, max) {
+            const num = parseFloat(value);
+            if (isNaN(num)) return false;
+            if (min !== undefined && num < min) return false;
+            if (max !== undefined && num > max) return false;
+            return true;
+        }
+
+        // Security: Sanitize sensor type selection
+        const VALID_SENSOR_TYPES = [
+            'pressure_0_1.6',
+            'pressure_0_4',
+            'pt1000',
+            'pt100',
+            'voltage_0_10v',
+            'current_4_20ma'
+        ];
+
+        function validateSensorType(type) {
+            return VALID_SENSOR_TYPES.includes(type);
+        }
+
+        // Initialize
+        document.addEventListener('DOMContentLoaded', async () => {
+            // Check if device is provisioned
+            try {
+                const response = await fetch(API_BASE + '/health');
+                const data = await response.json();
+
+                if (!data.provisioned) {
+                    showSetup();
+                } else if (authToken) {
+                    showApp();
+                } else {
+                    showLogin();
+                }
+            } catch (err) {
+                // If health check fails, assume provisioned and show login
+                if (authToken) {
+                    showApp();
+                } else {
+                    showLogin();
+                }
+            }
+
+            // Navigation
+            document.querySelectorAll('[data-bs-toggle="pill"]').forEach(btn => {
+                btn.addEventListener('click', (e) => {
+                    document.querySelectorAll('.nav-link').forEach(l => l.classList.remove('active'));
+                    e.target.classList.add('active');
+
+                    document.querySelectorAll('.panel').forEach(p => p.style.display = 'none');
+                    document.getElementById('panel-' + e.target.dataset.target).style.display = 'block';
+                });
+            });
+
+            // Setup form
+            document.getElementById('setupForm').addEventListener('submit', async (e) => {
+                e.preventDefault();
+                await setupPassword();
+            });
+
+            // Login form
+            document.getElementById('loginForm').addEventListener('submit', async (e) => {
+                e.preventDefault();
+                await login();
+            });
+
+            // Change password form
+            document.getElementById('changePasswordForm').addEventListener('submit', async (e) => {
+                e.preventDefault();
+                await changePassword();
+            });
+        });
+
+        // Auth functions
+        async function login() {
+            const password = document.getElementById('password').value;
+            try {
+                const response = await fetch(API_BASE + '/login', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ password })
+                });
+
+                const data = await response.json();
+                if (data.success && data.token) {
+                    authToken = data.token;
+                    localStorage.setItem('authToken', authToken);
+                    showApp();
+                } else {
+                    showError(data.error || 'Login failed');
+                }
+            } catch (err) {
+                showError('Connection failed: ' + err.message);
+            }
+        }
+
+        function logout() {
+            fetch(API_BASE + '/logout', {
+                method: 'POST',
+                headers: { 'Authorization': 'Bearer ' + authToken }
+            });
+            authToken = null;
+            localStorage.removeItem('authToken');
+            showLogin();
+        }
+
+        function showSetup() {
+            document.getElementById('setup').style.display = 'block';
+            document.getElementById('login').style.display = 'none';
+            document.getElementById('app').style.display = 'none';
+            if (refreshInterval) clearInterval(refreshInterval);
+            if (cpuGraphInterval) clearInterval(cpuGraphInterval);
+            if (networkGraphInterval) clearInterval(networkGraphInterval);
+        }
+
+        function showLogin() {
+            document.getElementById('setup').style.display = 'none';
+            document.getElementById('login').style.display = 'block';
+            document.getElementById('app').style.display = 'none';
+            if (refreshInterval) clearInterval(refreshInterval);
+            if (cpuGraphInterval) clearInterval(cpuGraphInterval);
+            if (networkGraphInterval) clearInterval(networkGraphInterval);
+        }
+
+        async function setupPassword() {
+            const password = document.getElementById('setupPassword').value;
+            const confirm = document.getElementById('setupConfirm').value;
+
+            // Validate passwords match
+            if (password !== confirm) {
+                showSetupError('Passwords do not match');
+                return;
+            }
+
+            // Validate password requirements
+            if (password.length < 8) {
+                showSetupError('Password must be at least 8 characters');
+                return;
+            }
+
+            let categories = 0;
+            if (/[a-z]/.test(password)) categories++;
+            if (/[A-Z]/.test(password)) categories++;
+            if (/[0-9]/.test(password)) categories++;
+
+            if (categories < 2) {
+                showSetupError('Password must contain at least 2 of: lowercase, uppercase, digit');
+                return;
+            }
+
+            try {
+                const response = await fetch(API_BASE + '/setup', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ password })
+                });
+
+                const data = await response.json();
+                if (data.success) {
+                    // Password created, now show login
+                    showLogin();
+                } else {
+                    showSetupError(data.error || 'Setup failed');
+                }
+            } catch (err) {
+                showSetupError('Connection failed: ' + err.message);
+            }
+        }
+
+        function showSetupError(msg) {
+            const el = document.getElementById('setupError');
+            el.textContent = String(msg);
+            el.style.display = 'block';
+        }
+
+        function showApp() {
+            document.getElementById('setup').style.display = 'none';
+            document.getElementById('login').style.display = 'none';
+            document.getElementById('app').style.display = 'block';
+            refreshAll();
+            refreshCpuHistory();
+            refreshNetworkHistory();
+            refreshInterval = setInterval(refreshAll, 2000);
+            cpuGraphInterval = setInterval(refreshCpuHistory, 15000);  // Match sample rate
+            networkGraphInterval = setInterval(refreshNetworkHistory, 15000);
+        }
+
+        function showError(msg) {
+            const el = document.getElementById('loginError');
+            el.textContent = String(msg);  // textContent automatically escapes
+            el.style.display = 'block';
+        }
+
+        // API helpers
+        async function api(endpoint, options = {}) {
+            options.headers = {
+                ...options.headers,
+                'Authorization': 'Bearer ' + authToken,
+                'Content-Type': 'application/json'
+            };
+            const response = await fetch(API_BASE + endpoint, options);
+            if (response.status === 401) {
+                logout();
+                throw new Error('Session expired');
+            }
+            return response.json();
+        }
+
+        // Data refresh
+        async function refreshAll() {
+            try {
+                const [status, sensors, relays, alarms, modbus, inputs, outputs, config, modules, can] =
+                    await Promise.all([
+                        api('/status'),
+                        api('/sensors'),
+                        api('/relays'),
+                        api('/alarms'),
+                        api('/modbus/stats'),
+                        api('/inputs'),
+                        api('/outputs'),
+                        api('/config'),
+                        api('/modules'),
+                        api('/can/status').catch(() => ({tx:0, rx:0, errors:0, state:'OFFLINE'}))
+                    ]);
+
+                updateStatus(status, modbus, can);
+                updateSensors(sensors?.sensors || []);
+                updateRelays(relays?.relays || []);
+                updateAlarms(alarms?.alarms || []);
+                updateModbus(modbus);
+                updateGPIO(inputs?.inputs || [], outputs?.outputs || []);
+                updateConfig(config);
+                updateModules(modules?.modules || {});
+
+                document.getElementById('connectionStatus').textContent = 'Connected';
+                document.getElementById('connectionStatus').className = 'nav-item badge bg-success me-2';
+            } catch (err) {
+                document.getElementById('connectionStatus').textContent = 'Error';
+                document.getElementById('connectionStatus').className = 'nav-item badge bg-danger me-2';
+                console.error('Refresh failed:', err);
+            }
+        }
+
+        // Update functions
+        function updateStatus(data, modbus, can) {
+            // Version and build info (use textContent for automatic escaping)
+            if (data.version) {
+                document.getElementById('status-version').textContent = 'Fermenter Controller v' + String(data.version);
+            }
+            if (data.build) {
+                document.getElementById('status-build').textContent = '(build ' + String(data.build) + ')';
+            }
+            if (data.built) {
+                document.getElementById('status-built').textContent = 'Built: ' + String(data.built);
+            }
+
+            // Flash usage
+            if (data.flash_used && data.flash_total) {
+                const usedMB = (data.flash_used / 1024 / 1024).toFixed(1);
+                const totalMB = (data.flash_total / 1024 / 1024).toFixed(1);
+                const percent = ((data.flash_used / data.flash_total) * 100).toFixed(1);
+                document.getElementById('status-flash').textContent = usedMB + ' / ' + totalMB + ' MB (' + percent + '%)';
+
+                const progressBar = document.getElementById('status-flash-bar');
+                progressBar.style.width = percent + '%';
+                progressBar.className = 'progress-bar ' +
+                    (percent < 70 ? 'bg-success' : percent < 85 ? 'bg-warning' : 'bg-danger');
+            }
+
+            // CPU usage and frequency
+            if (data.cpu_usage !== undefined) {
+                document.getElementById('status-cpu').textContent = data.cpu_usage.toFixed(1) + '%';
+            }
+            if (data.cpu_freq_mhz !== undefined) {
+                const freqText = data.cpu_freq_mhz + '/' + data.cpu_freq_max_mhz + ' MHz';
+                document.getElementById('status-cpu-freq').textContent = freqText;
+            }
+
+            // System
+            document.getElementById('status-uptime').textContent = data.uptime;
+            document.getElementById('status-heap').textContent = Math.round(data.free_heap / 1024) + ' KB';
+            document.getElementById('status-sensors').textContent = data.sensor_count;
+            document.getElementById('status-fermenters').textContent = data.fermenter_count;
+
+            // Connectivity
+            document.getElementById('status-wifi').textContent = data.wifi_rssi + ' dBm';
+            document.getElementById('status-wifi').className = 'sensor-value ' +
+                (data.wifi_rssi > -70 ? 'status-good' : data.wifi_rssi > -85 ? 'status-warning' : 'status-bad');
+            document.getElementById('status-ntp').textContent = data.ntp_synced ? 'Synced' : 'Not Synced';
+            document.getElementById('status-ntp').className = 'sensor-value ' +
+                (data.ntp_synced ? 'status-good' : 'status-warning');
+
+            // Time and timezone (textContent provides automatic escaping)
+            if (data.system_time) {
+                document.getElementById('status-time').textContent = String(data.system_time);
+            }
+            if (data.timezone) {
+                document.getElementById('status-timezone').textContent = String(data.timezone);
+            }
+
+            // MODBUS
+            if (modbus) {
+                document.getElementById('status-modbus-tx').textContent = modbus.transactions;
+                document.getElementById('status-modbus-err').textContent = modbus.errors;
+                document.getElementById('status-modbus-rate').textContent = modbus.error_rate.toFixed(2) + '%';
+                document.getElementById('status-modbus-rate').className = 'fw-bold ' +
+                    (modbus.error_rate < 1 ? 'status-good' : modbus.error_rate < 5 ? 'status-warning' : 'status-bad');
+            }
+
+            // CAN Bus
+            if (can) {
+                document.getElementById('status-can-tx').textContent = can.tx || 0;
+                document.getElementById('status-can-rx').textContent = can.rx || 0;
+                document.getElementById('status-can-err').textContent = can.errors || 0;
+                const canState = can.state || 'OFFLINE';
+                const canBadge = document.getElementById('status-can-state');
+                canBadge.textContent = canState;
+                canBadge.className = 'badge float-end ' +
+                    (canState === 'OK' ? 'bg-success' : canState === 'RECOVERING' ? 'bg-warning' : 'bg-secondary');
+            }
+        }
+
+        function updateSensors(sensors) {
+            const tbody = document.getElementById('sensors-table-body');
+            tbody.innerHTML = sensors.map((s, idx) => {
+                const safeName = escapeHtml(s.name);
+                const safeModbusAddr = escapeHtml(s.modbus_addr || 'N/A');
+                const safeUnit = escapeHtml(s.unit);
+                const safeQuality = escapeHtml(s.quality);
+                const safeType = s.type && validateSensorType(s.type) ? s.type : 'pressure_0_1.6';
+                const safeValue = !isNaN(s.value) ? s.value.toFixed(2) : '0.00';
+
+                return `
+                <tr id="sensor-row-${idx}">
+                    <td><strong>${safeName}</strong></td>
+                    <td><span class="badge bg-secondary">${safeModbusAddr}</span></td>
+                    <td>
+                        <span class="${s.quality === 'GOOD' ? 'status-good' : 'status-warning'}">
+                            ${safeValue} ${safeUnit}
+                        </span>
+                    </td>
+                    <td><span class="badge ${s.quality === 'GOOD' ? 'bg-success' : 'bg-warning'}">${safeQuality}</span></td>
+                    <td>
+                        <select class="form-select form-select-sm" id="sensor-type-${idx}" disabled>
+                            <option value="pressure_0_1.6" ${safeType === 'pressure_0_1.6' ? 'selected' : ''}>Pressure 0-1.6 bar</option>
+                            <option value="pressure_0_4" ${safeType === 'pressure_0_4' ? 'selected' : ''}>Pressure 0-4 bar</option>
+                            <option value="pt1000" ${safeType === 'pt1000' ? 'selected' : ''}>PT1000 Temperature</option>
+                            <option value="pt100" ${safeType === 'pt100' ? 'selected' : ''}>PT100 Temperature</option>
+                            <option value="voltage_0_10v" ${safeType === 'voltage_0_10v' ? 'selected' : ''}>Voltage 0-10V</option>
+                            <option value="current_4_20ma" ${safeType === 'current_4_20ma' ? 'selected' : ''}>Current 4-20mA</option>
+                        </select>
+                    </td>
+                    <td>
+                        <button class="btn btn-sm btn-primary me-1" onclick="editSensor(${idx})" id="edit-btn-${idx}">
+                            <i class="bi bi-pencil"></i>
+                        </button>
+                        <button class="btn btn-sm btn-success me-1" onclick="saveSensor(${idx}, '${safeName}')" id="save-btn-${idx}" style="display:none;">
+                            <i class="bi bi-check"></i>
+                        </button>
+                        <button class="btn btn-sm btn-secondary" onclick="cancelEdit(${idx}, '${safeType}')" id="cancel-btn-${idx}" style="display:none;">
+                            <i class="bi bi-x"></i>
+                        </button>
+                    </td>
+                </tr>
+                `;
+            }).join('');
+        }
+
+        function editSensor(idx) {
+            document.getElementById(`sensor-type-${idx}`).disabled = false;
+            document.getElementById(`edit-btn-${idx}`).style.display = 'none';
+            document.getElementById(`save-btn-${idx}`).style.display = 'inline-block';
+            document.getElementById(`cancel-btn-${idx}`).style.display = 'inline-block';
+        }
+
+        function cancelEdit(idx, originalType) {
+            document.getElementById(`sensor-type-${idx}`).disabled = true;
+            document.getElementById(`sensor-type-${idx}`).value = originalType;
+            document.getElementById(`edit-btn-${idx}`).style.display = 'inline-block';
+            document.getElementById(`save-btn-${idx}`).style.display = 'none';
+            document.getElementById(`cancel-btn-${idx}`).style.display = 'none';
+        }
+
+        async function saveSensor(idx, name) {
+            const newType = document.getElementById(`sensor-type-${idx}`).value;
+
+            // Validate sensor type
+            if (!validateSensorType(newType)) {
+                alert('Invalid sensor type selected');
+                return;
+            }
+
+            try {
+                await api('/sensor/' + encodeURIComponent(name) + '/config', {
+                    method: 'POST',
+                    body: JSON.stringify({ type: newType })
+                });
+
+                document.getElementById(`sensor-type-${idx}`).disabled = true;
+                document.getElementById(`edit-btn-${idx}`).style.display = 'inline-block';
+                document.getElementById(`save-btn-${idx}`).style.display = 'none';
+                document.getElementById(`cancel-btn-${idx}`).style.display = 'none';
+
+                // Show success feedback
+                const row = document.getElementById(`sensor-row-${idx}`);
+                row.classList.add('table-success');
+                setTimeout(() => row.classList.remove('table-success'), 2000);
+
+                refreshAll();
+            } catch (err) {
+                alert('Failed to save sensor configuration: ' + escapeHtml(err.message));
+            }
+        }
+
+        function updateRelays(relays) {
+            // Relays page (grid view)
+            const container = document.getElementById('relays-list');
+            container.innerHTML = relays.map((r, idx) => {
+                const safeName = escapeHtml(r.name);
+                const safeNameAttr = r.name.replace(/'/g, "\\'");
+                return `
+                <div class="col-md-3 mb-3">
+                    <div class="card">
+                        <div class="card-body text-center">
+                            <h6>${safeName}</h6>
+                            <button class="btn ${r.state ? 'relay-on' : 'relay-off'} w-100"
+                                    onclick="toggleRelay('${safeNameAttr}', ${!r.state})">
+                                ${r.state ? 'ON' : 'OFF'}
+                            </button>
+                        </div>
+                    </div>
+                </div>
+                `;
+            }).join('');
+
+        }
+
+        function updateFermenters(fermenters) {
+            // Detail view only
+            const detail = document.getElementById('fermenters-detail');
+            detail.innerHTML = fermenters.map(f => `
+                <div class="col-md-3 mb-3">
+                    <div class="card fermenter-card" onclick="showFermenterModal(${f.id})">
+                        <div class="card-header">
+                            <strong>${f.name}</strong>
+                            <span class="badge bg-${f.mode === 'PLAN' ? 'success' : f.mode === 'MANUAL' ? 'primary' : 'secondary'} float-end">
+                                ${f.mode}
+                            </span>
+                        </div>
+                        <div class="card-body">
+                            <div class="row text-center">
+                                <div class="col-6">
+                                    <div class="text-muted small">Temp</div>
+                                    <div class="fw-bold">${f.temp.toFixed(1)}°C</div>
+                                    <div class="text-muted small">→ ${f.setpoint.toFixed(1)}°C</div>
+                                </div>
+                                <div class="col-6">
+                                    <div class="text-muted small">Pressure</div>
+                                    <div class="fw-bold">${f.pressure.toFixed(2)} bar</div>
+                                </div>
+                            </div>
+                            <div class="progress mt-2" style="height: 5px;">
+                                <div class="progress-bar" style="width: ${f.pid_output}%"></div>
+                            </div>
+                            <small class="text-muted">PID: ${f.pid_output.toFixed(0)}%</small>
+                        </div>
+                    </div>
+                </div>
+            `).join('');
+        }
+
+        function updateAlarms(alarms) {
+            const container = document.getElementById('alarms-container');
+            if (alarms.length === 0) {
+                container.innerHTML = '<span class="text-muted">No active alarms</span>';
+            } else {
+                container.innerHTML = alarms.map(a => `
+                    <div class="alert alert-danger">
+                        <strong>Fermenter ${a.fermenter}:</strong>
+                        ${a.temp_high ? 'Temperature HIGH ' : ''}
+                        ${a.temp_low ? 'Temperature LOW ' : ''}
+                        ${a.pressure_high ? 'Pressure HIGH ' : ''}
+                        ${a.sensor_failure ? 'Sensor FAILURE' : ''}
+                    </div>
+                `).join('');
+            }
+        }
+
+        function updateModbus(data) {
+            document.getElementById('modbus-transactions').textContent = data.transactions;
+            document.getElementById('modbus-errors').textContent = data.errors;
+            document.getElementById('modbus-error-rate').textContent = data.error_rate.toFixed(2) + '%';
+        }
+
+        function updateGPIO(inputs, outputs) {
+            // GPIO page inputs
+            document.getElementById('inputs-list').innerHTML = inputs.map(i => `
+                <div class="d-flex justify-content-between align-items-center mb-2">
+                    <span>DI${i.id}</span>
+                    <span class="badge ${i.state ? 'bg-success' : 'bg-secondary'}">
+                        ${i.state ? 'HIGH' : 'LOW'}
+                    </span>
+                </div>
+            `).join('');
+
+            // GPIO page outputs
+            document.getElementById('outputs-list').innerHTML = outputs.map(o => `
+                <div class="d-flex justify-content-between align-items-center mb-2">
+                    <span>DO${o.id}</span>
+                    <button class="btn btn-sm ${o.state ? 'btn-success' : 'btn-secondary'}"
+                            onclick="toggleOutput(${o.id}, ${!o.state})">
+                        ${o.state ? 'ON' : 'OFF'}
+                    </button>
+                </div>
+            `).join('');
+
+            // Status page inputs
+            document.getElementById('inputs-status-list').innerHTML = inputs.map(i => `
+                <div class="d-flex justify-content-between align-items-center mb-2">
+                    <span>DI${i.id}</span>
+                    <span class="badge ${i.state ? 'bg-success' : 'bg-secondary'}">
+                        ${i.state ? 'HIGH' : 'LOW'}
+                    </span>
+                </div>
+            `).join('');
+
+            // Status page outputs (raw GPIO toggle buttons)
+            document.getElementById('outputs-status-list').innerHTML = outputs.map(o => `
+                <div class="d-flex justify-content-between align-items-center mb-2">
+                    <span>DO${o.id}</span>
+                    <button class="btn btn-sm ${o.state ? 'btn-success' : 'btn-secondary'}"
+                            onclick="toggleOutput(${o.id}, ${!o.state})"
+                            style="min-width: 60px;">
+                        ${o.state ? 'ON' : 'OFF'}
+                    </button>
+                </div>
+            `).join('');
+        }
+
+        function updateConfig(data) {
+            document.getElementById('config-display').innerHTML = `
+                <div class="card">
+                    <div class="card-body">
+                        <pre>${JSON.stringify(data, null, 2)}</pre>
+                    </div>
+                </div>
+            `;
+        }
+
+        function updateModules(modules) {
+            // System page modules list
+            document.getElementById('modules-list').innerHTML = Object.entries(modules).map(([name, enabled]) => {
+                const safeName = escapeHtml(String(name).toUpperCase());
+                return `
+                <div class="d-flex justify-content-between align-items-center mb-2">
+                    <span>${safeName}</span>
+                    <span class="badge ${enabled ? 'bg-success' : 'bg-secondary'}">
+                        ${enabled ? 'Enabled' : 'Disabled'}
+                    </span>
+                </div>
+                `;
+            }).join('');
+
+            // Status page modules (vertical list)
+            document.getElementById('modules-status-list').innerHTML = Object.entries(modules).map(([name, enabled]) => {
+                const safeName = escapeHtml(String(name).toUpperCase());
+                return `
+                <div class="d-flex justify-content-between align-items-center mb-2">
+                    <span>${safeName}</span>
+                    <span class="badge ${enabled ? 'bg-success' : 'bg-secondary'}">
+                        ${enabled ? 'ON' : 'OFF'}
+                    </span>
+                </div>
+                `;
+            }).join('');
+        }
+
+        // Actions
+        async function toggleRelay(name, state) {
+            try {
+                await api('/relay/' + encodeURIComponent(name), {
+                    method: 'POST',
+                    body: JSON.stringify({ state: !!state })
+                });
+                refreshAll();
+            } catch (err) {
+                alert('Failed to toggle relay: ' + escapeHtml(err.message));
+            }
+        }
+
+        async function toggleOutput(id, state) {
+            // Validate ID is a number
+            const numId = parseInt(id);
+            if (isNaN(numId) || numId < 0) {
+                alert('Invalid output ID');
+                return;
+            }
+
+            try {
+                await api('/output/' + numId, {
+                    method: 'POST',
+                    body: JSON.stringify({ state: !!state })
+                });
+                refreshAll();
+            } catch (err) {
+                alert('Failed to toggle output: ' + escapeHtml(err.message));
+            }
+        }
+
+        async function showFermenterModal(id) {
+            const data = await api('/fermenter/' + id);
+            const pid = await api('/pid/' + id);
+
+            document.getElementById('modal-fermenter-id').value = id;
+            document.getElementById('modal-setpoint').value = data.setpoint;
+            document.getElementById('modal-mode').value = data.mode;
+            document.getElementById('modal-kp').value = pid.kp;
+            document.getElementById('modal-ki').value = pid.ki;
+            document.getElementById('modal-kd').value = pid.kd;
+
+            new bootstrap.Modal(document.getElementById('fermenterModal')).show();
+        }
+
+        async function saveFermenterSettings() {
+            const id = document.getElementById('modal-fermenter-id').value;
+
+            await api('/fermenter/' + id, {
+                method: 'POST',
+                body: JSON.stringify({
+                    setpoint: parseFloat(document.getElementById('modal-setpoint').value),
+                    mode: document.getElementById('modal-mode').value
+                })
+            });
+
+            await api('/pid/' + id, {
+                method: 'POST',
+                body: JSON.stringify({
+                    kp: parseFloat(document.getElementById('modal-kp').value),
+                    ki: parseFloat(document.getElementById('modal-ki').value),
+                    kd: parseFloat(document.getElementById('modal-kd').value)
+                })
+            });
+
+            bootstrap.Modal.getInstance(document.getElementById('fermenterModal')).hide();
+            refreshAll();
+        }
+
+        async function reboot() {
+            if (confirm('Are you sure you want to reboot the controller?')) {
+                await api('/reboot', { method: 'POST' });
+                alert('Rebooting... Please wait and refresh the page.');
+            }
+        }
+
+        async function changePassword() {
+            const currentPassword = document.getElementById('currentPassword').value;
+            const newPassword = document.getElementById('newPassword').value;
+            const confirmPassword = document.getElementById('confirmNewPassword').value;
+            const resultDiv = document.getElementById('passwordChangeResult');
+
+            // Validate passwords match
+            if (newPassword !== confirmPassword) {
+                resultDiv.className = 'alert alert-danger mt-3';
+                resultDiv.textContent = 'New passwords do not match';
+                resultDiv.style.display = 'block';
+                return;
+            }
+
+            // Validate password requirements
+            if (newPassword.length < 8) {
+                resultDiv.className = 'alert alert-danger mt-3';
+                resultDiv.textContent = 'Password must be at least 8 characters';
+                resultDiv.style.display = 'block';
+                return;
+            }
+
+            let categories = 0;
+            if (/[a-z]/.test(newPassword)) categories++;
+            if (/[A-Z]/.test(newPassword)) categories++;
+            if (/[0-9]/.test(newPassword)) categories++;
+
+            if (categories < 2) {
+                resultDiv.className = 'alert alert-danger mt-3';
+                resultDiv.textContent = 'Password must contain at least 2 of: lowercase, uppercase, digit';
+                resultDiv.style.display = 'block';
+                return;
+            }
+
+            try {
+                const data = await api('/password', {
+                    method: 'POST',
+                    body: JSON.stringify({
+                        current_password: currentPassword,
+                        new_password: newPassword
+                    })
+                });
+
+                if (data.success) {
+                    resultDiv.className = 'alert alert-success mt-3';
+                    resultDiv.textContent = 'Password changed successfully';
+                    resultDiv.style.display = 'block';
+                    // Clear form
+                    document.getElementById('currentPassword').value = '';
+                    document.getElementById('newPassword').value = '';
+                    document.getElementById('confirmNewPassword').value = '';
+                } else {
+                    resultDiv.className = 'alert alert-danger mt-3';
+                    resultDiv.textContent = data.error || 'Failed to change password';
+                    resultDiv.style.display = 'block';
+                }
+            } catch (err) {
+                resultDiv.className = 'alert alert-danger mt-3';
+                resultDiv.textContent = 'Error: ' + err.message;
+                resultDiv.style.display = 'block';
+            }
+        }
+
+        async function factoryReset() {
+            if (!confirm('WARNING: This will erase all settings including WiFi credentials and password!\n\nAre you sure you want to continue?')) {
+                return;
+            }
+            if (!confirm('This action cannot be undone. Type OK to confirm.')) {
+                return;
+            }
+
+            try {
+                await api('/factory_reset', { method: 'POST' });
+                alert('Factory reset initiated. Device will reboot.');
+                logout();
+            } catch (err) {
+                alert('Factory reset failed: ' + err.message);
+            }
+        }
+
+        // CPU History Graph
+        let cpuHistoryData = [];
+
+        async function refreshCpuHistory() {
+            try {
+                const data = await api('/cpu/history');
+                cpuHistoryData = data.samples || [];
+                drawCpuGraph();
+            } catch (err) {
+                console.error('Failed to fetch CPU history:', err);
+            }
+        }
+
+        function drawCpuGraph() {
+            const canvas = document.getElementById('cpu-graph');
+            if (!canvas) return;
+
+            const ctx = canvas.getContext('2d');
+            const rect = canvas.parentElement.getBoundingClientRect();
+
+            // Set canvas size to match container (handle high DPI)
+            const dpr = window.devicePixelRatio || 1;
+            canvas.width = rect.width * dpr;
+            canvas.height = rect.height * dpr;
+            ctx.scale(dpr, dpr);
+
+            const width = rect.width;
+            const height = rect.height;
+            const padding = { top: 10, right: 10, bottom: 20, left: 35 };
+            const graphWidth = width - padding.left - padding.right;
+            const graphHeight = height - padding.top - padding.bottom;
+
+            // Clear canvas
+            ctx.clearRect(0, 0, width, height);
+
+            if (cpuHistoryData.length === 0) {
+                ctx.fillStyle = '#6c757d';
+                ctx.font = '12px sans-serif';
+                ctx.textAlign = 'center';
+                ctx.fillText('No data yet', width / 2, height / 2);
+                return;
+            }
+
+            // Calculate Y-axis range (min 5%, max rounded up to nearest 5%)
+            const maxValue = Math.max(...cpuHistoryData, 5);
+            const yMax = Math.min(100, Math.ceil(maxValue / 5) * 5);
+            const yMin = 0;
+
+            // Draw grid lines
+            ctx.strokeStyle = '#343a40';
+            ctx.lineWidth = 1;
+            ctx.setLineDash([2, 2]);
+
+            // Horizontal grid lines (every 5%)
+            const yStep = yMax <= 20 ? 5 : (yMax <= 50 ? 10 : 20);
+            for (let y = yMin; y <= yMax; y += yStep) {
+                const yPos = padding.top + graphHeight - (y / yMax) * graphHeight;
+                ctx.beginPath();
+                ctx.moveTo(padding.left, yPos);
+                ctx.lineTo(width - padding.right, yPos);
+                ctx.stroke();
+
+                // Y-axis labels
+                ctx.fillStyle = '#6c757d';
+                ctx.font = '10px sans-serif';
+                ctx.textAlign = 'right';
+                ctx.fillText(y + '%', padding.left - 5, yPos + 3);
+            }
+
+            ctx.setLineDash([]);
+
+            // Draw filled area
+            const xStep = graphWidth / (cpuHistoryData.length - 1 || 1);
+
+            // Create gradient fill
+            const gradient = ctx.createLinearGradient(0, padding.top, 0, height - padding.bottom);
+            gradient.addColorStop(0, 'rgba(13, 110, 253, 0.4)');
+            gradient.addColorStop(1, 'rgba(13, 110, 253, 0.05)');
+
+            // Draw filled area path
+            ctx.beginPath();
+            ctx.moveTo(padding.left, height - padding.bottom);
+
+            for (let i = 0; i < cpuHistoryData.length; i++) {
+                const x = padding.left + i * xStep;
+                const y = padding.top + graphHeight - (cpuHistoryData[i] / yMax) * graphHeight;
+                if (i === 0) {
+                    ctx.lineTo(x, y);
+                } else {
+                    ctx.lineTo(x, y);
+                }
+            }
+
+            ctx.lineTo(padding.left + (cpuHistoryData.length - 1) * xStep, height - padding.bottom);
+            ctx.closePath();
+            ctx.fillStyle = gradient;
+            ctx.fill();
+
+            // Draw line on top
+            ctx.beginPath();
+            ctx.strokeStyle = '#0d6efd';
+            ctx.lineWidth = 2;
+
+            for (let i = 0; i < cpuHistoryData.length; i++) {
+                const x = padding.left + i * xStep;
+                const y = padding.top + graphHeight - (cpuHistoryData[i] / yMax) * graphHeight;
+                if (i === 0) {
+                    ctx.moveTo(x, y);
+                } else {
+                    ctx.lineTo(x, y);
+                }
+            }
+            ctx.stroke();
+
+            // X-axis labels (time ago)
+            ctx.fillStyle = '#6c757d';
+            ctx.font = '10px sans-serif';
+            ctx.textAlign = 'center';
+
+            const totalMinutes = (cpuHistoryData.length - 1) * 15 / 60;
+            if (cpuHistoryData.length > 1) {
+                // Start label
+                ctx.fillText('-' + Math.round(totalMinutes) + 'm', padding.left, height - 5);
+                // Middle label
+                ctx.fillText('-' + Math.round(totalMinutes / 2) + 'm', padding.left + graphWidth / 2, height - 5);
+                // End label (now)
+                ctx.fillText('now', width - padding.right, height - 5);
+            }
+
+            // Store graph info for tooltip
+            canvas.cpuGraphInfo = {
+                padding,
+                graphWidth,
+                graphHeight,
+                xStep,
+                yMax
+            };
+        }
+
+        // Tooltip handling
+        document.addEventListener('DOMContentLoaded', () => {
+            const canvas = document.getElementById('cpu-graph');
+            const tooltip = document.getElementById('cpu-tooltip');
+
+            if (canvas && tooltip) {
+                canvas.addEventListener('mousemove', (e) => {
+                    if (!canvas.cpuGraphInfo || cpuHistoryData.length === 0) {
+                        tooltip.style.display = 'none';
+                        return;
+                    }
+
+                    const rect = canvas.getBoundingClientRect();
+                    const x = e.clientX - rect.left;
+                    const y = e.clientY - rect.top;
+                    const { padding, graphWidth, xStep } = canvas.cpuGraphInfo;
+
+                    // Check if mouse is in graph area
+                    if (x < padding.left || x > padding.left + graphWidth) {
+                        tooltip.style.display = 'none';
+                        return;
+                    }
+
+                    // Find nearest data point
+                    const dataIndex = Math.round((x - padding.left) / xStep);
+                    if (dataIndex < 0 || dataIndex >= cpuHistoryData.length) {
+                        tooltip.style.display = 'none';
+                        return;
+                    }
+
+                    const value = cpuHistoryData[dataIndex];
+                    const minutesAgo = Math.round((cpuHistoryData.length - 1 - dataIndex) * 15 / 60);
+                    const timeLabel = minutesAgo === 0 ? 'now' : `-${minutesAgo}m`;
+
+                    tooltip.textContent = `${value}% (${timeLabel})`;
+                    tooltip.style.display = 'block';
+                    tooltip.style.left = (x + 10) + 'px';
+                    tooltip.style.top = (y - 25) + 'px';
+                });
+
+                canvas.addEventListener('mouseleave', () => {
+                    tooltip.style.display = 'none';
+                });
+            }
+        });
+
+        // Network History Graph
+        let networkHistoryData = [];
+
+        async function refreshNetworkHistory() {
+            try {
+                const data = await api('/network/history');
+                networkHistoryData = data.samples || [];
+                // Update link speed and channel display
+                document.getElementById('wifi-speed').textContent = data.link_speed_mbps || '--';
+                document.getElementById('wifi-channel').textContent = data.channel || '--';
+                drawNetworkGraph();
+            } catch (err) {
+                console.error('Failed to fetch network history:', err);
+            }
+        }
+
+        function drawNetworkGraph() {
+            const canvas = document.getElementById('network-graph');
+            if (!canvas) return;
+
+            const ctx = canvas.getContext('2d');
+            const rect = canvas.parentElement.getBoundingClientRect();
+
+            // Set canvas size to match container (handle high DPI)
+            const dpr = window.devicePixelRatio || 1;
+            canvas.width = rect.width * dpr;
+            canvas.height = rect.height * dpr;
+            canvas.style.width = rect.width + 'px';
+            canvas.style.height = rect.height + 'px';
+            ctx.scale(dpr, dpr);
+
+            const width = rect.width;
+            const height = rect.height;
+            const padding = { left: 35, right: 10, top: 10, bottom: 20 };
+            const graphWidth = width - padding.left - padding.right;
+            const graphHeight = height - padding.top - padding.bottom;
+
+            // Clear canvas
+            ctx.clearRect(0, 0, width, height);
+
+            if (networkHistoryData.length === 0) {
+                ctx.fillStyle = '#6c757d';
+                ctx.font = '12px system-ui';
+                ctx.textAlign = 'center';
+                ctx.fillText('No data yet', width / 2, height / 2);
+                return;
+            }
+
+            // Calculate Y-axis scale (0-100% or dynamic)
+            const maxValue = Math.max(...networkHistoryData, 5);
+            const yMax = maxValue <= 10 ? 10 : maxValue <= 50 ? 50 : 100;
+
+            // Draw Y-axis labels and grid lines
+            ctx.fillStyle = '#6c757d';
+            ctx.font = '10px system-ui';
+            ctx.textAlign = 'right';
+            ctx.strokeStyle = '#2a2a2a';
+            ctx.lineWidth = 1;
+
+            const ySteps = yMax <= 10 ? [0, 5, 10] : yMax <= 50 ? [0, 25, 50] : [0, 50, 100];
+            ySteps.forEach(y => {
+                const yPos = padding.top + graphHeight - (y / yMax) * graphHeight;
+                // Grid line
+                ctx.beginPath();
+                ctx.moveTo(padding.left, yPos);
+                ctx.lineTo(width - padding.right, yPos);
+                ctx.stroke();
+                // Label
+                ctx.fillText(y + '%', padding.left - 5, yPos + 3);
+            });
+
+            // Draw data as filled area chart (blue theme)
+            const xStep = graphWidth / (networkHistoryData.length - 1 || 1);
+
+            // Fill area
+            ctx.beginPath();
+            ctx.moveTo(padding.left, height - padding.bottom);
+            for (let i = 0; i < networkHistoryData.length; i++) {
+                const x = padding.left + i * xStep;
+                const y = padding.top + graphHeight - (networkHistoryData[i] / yMax) * graphHeight;
+                if (i === 0) ctx.lineTo(x, y);
+                else ctx.lineTo(x, y);
+            }
+            ctx.lineTo(padding.left + (networkHistoryData.length - 1) * xStep, height - padding.bottom);
+            ctx.closePath();
+            ctx.fillStyle = 'rgba(13, 110, 253, 0.3)';
+            ctx.fill();
+
+            // Draw line
+            ctx.beginPath();
+            ctx.strokeStyle = '#0d6efd';
+            ctx.lineWidth = 2;
+            for (let i = 0; i < networkHistoryData.length; i++) {
+                const x = padding.left + i * xStep;
+                const y = padding.top + graphHeight - (networkHistoryData[i] / yMax) * graphHeight;
+                if (i === 0) ctx.moveTo(x, y);
+                else ctx.lineTo(x, y);
+            }
+            ctx.stroke();
+
+            // Draw X-axis time labels
+            ctx.fillStyle = '#6c757d';
+            ctx.font = '10px system-ui';
+            ctx.textAlign = 'center';
+
+            const totalMinutes = (networkHistoryData.length - 1) * 15 / 60;
+            if (networkHistoryData.length > 1) {
+                ctx.fillText('-' + Math.round(totalMinutes) + 'm', padding.left, height - 5);
+                if (totalMinutes > 5) {
+                    ctx.fillText('-' + Math.round(totalMinutes / 2) + 'm', padding.left + graphWidth / 2, height - 5);
+                }
+                ctx.fillText('now', padding.left + graphWidth, height - 5);
+            }
+
+            // Store graph info for tooltip
+            canvas.networkGraphInfo = {
+                padding,
+                graphWidth,
+                graphHeight,
+                xStep,
+                yMax
+            };
+        }
+
+        // Network graph tooltip
+        document.addEventListener('DOMContentLoaded', () => {
+            const canvas = document.getElementById('network-graph');
+            const tooltip = document.getElementById('network-tooltip');
+
+            if (canvas && tooltip) {
+                canvas.addEventListener('mousemove', (e) => {
+                    if (!canvas.networkGraphInfo || networkHistoryData.length === 0) {
+                        tooltip.style.display = 'none';
+                        return;
+                    }
+
+                    const rect = canvas.getBoundingClientRect();
+                    const x = e.clientX - rect.left;
+                    const y = e.clientY - rect.top;
+                    const { padding, graphWidth, xStep } = canvas.networkGraphInfo;
+
+                    // Check if mouse is in graph area
+                    if (x < padding.left || x > padding.left + graphWidth) {
+                        tooltip.style.display = 'none';
+                        return;
+                    }
+
+                    const dataIndex = Math.round((x - padding.left) / xStep);
+                    if (dataIndex < 0 || dataIndex >= networkHistoryData.length) {
+                        tooltip.style.display = 'none';
+                        return;
+                    }
+
+                    const value = networkHistoryData[dataIndex];
+                    const minutesAgo = Math.round((networkHistoryData.length - 1 - dataIndex) * 15 / 60);
+                    const timeLabel = minutesAgo === 0 ? 'now' : `-${minutesAgo}m`;
+
+                    tooltip.textContent = `${value}% (${timeLabel})`;
+                    tooltip.style.display = 'block';
+                    tooltip.style.left = (x + 10) + 'px';
+                    tooltip.style.top = (y - 25) + 'px';
+                });
+
+                canvas.addEventListener('mouseleave', () => {
+                    tooltip.style.display = 'none';
+                });
+            }
+        });
+
+        // Redraw graphs on window resize
+        window.addEventListener('resize', () => {
+            drawCpuGraph();
+            drawNetworkGraph();
+        });
+    </script>
+</body>
+</html>

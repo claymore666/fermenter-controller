@@ -1,0 +1,277 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>MODBUS RTU Simulator</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="/static/css/custom.css" rel="stylesheet">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+</head>
+<body>
+    <nav class="navbar navbar-dark bg-dark">
+        <div class="container-fluid">
+            <span class="navbar-brand mb-0 h1">MODBUS RTU Simulator</span>
+            <span id="connection-status" class="badge bg-danger">Disconnected</span>
+        </div>
+    </nav>
+
+    <div class="container-fluid mt-3">
+        <div class="row">
+            <!-- Sensor 1 -->
+            <div class="col-md-6 mb-3">
+                <div class="card">
+                    <div class="card-header d-flex justify-content-between align-items-center">
+                        <strong>Sensor 1 (Channel 1)</strong>
+                        <span id="sim1-status" class="badge bg-secondary">Stopped</span>
+                    </div>
+                    <div class="card-body">
+                        <div class="row">
+                            <div class="col-6">
+                                <h6>True Pressure</h6>
+                                <h3 id="s1-true" class="text-primary">0.000 bar</h3>
+                            </div>
+                            <div class="col-6">
+                                <h6>Measured</h6>
+                                <h3 id="s1-measured" class="text-success">0.000 bar</h3>
+                            </div>
+                        </div>
+                        <div class="row mt-2">
+                            <div class="col-6">
+                                <small class="text-muted">Current: <span id="s1-ma">4.00</span> mA</small>
+                            </div>
+                            <div class="col-6">
+                                <small class="text-muted">MODBUS: <span id="s1-modbus">0</span></small>
+                            </div>
+                        </div>
+                        <hr>
+                        <div class="mb-3">
+                            <label class="form-label">Target Pressure (bar)</label>
+                            <input type="number" id="s1-target" class="form-control form-control-sm"
+                                   min="0" max="1.6" step="0.1" value="0.5">
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label">Rate (bar/min)</label>
+                            <input type="number" id="s1-rate" class="form-control form-control-sm"
+                                   min="0.01" max="1000" step="0.1" value="100">
+                        </div>
+                        <div class="btn-group w-100 mb-2">
+                            <button class="btn btn-success btn-sm" onclick="startSim(1)">Start</button>
+                            <button class="btn btn-warning btn-sm" onclick="stopSim(1)">Stop</button>
+                            <button class="btn btn-secondary btn-sm" onclick="resetSim(1)">Reset</button>
+                        </div>
+                        <div class="btn-group w-100">
+                            <button id="s1-fault-wire" class="btn btn-outline-danger btn-sm" onclick="setFault(1, 'wire_break')">0mA</button>
+                            <button id="s1-fault-defect" class="btn btn-outline-danger btn-sm" onclick="setFault(1, 'sensor_defect')">25mA</button>
+                            <button id="s1-fault-clear" class="btn btn-outline-secondary btn-sm" onclick="setFault(1, null)">Normal</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Sensor 2 -->
+            <div class="col-md-6 mb-3">
+                <div class="card">
+                    <div class="card-header d-flex justify-content-between align-items-center">
+                        <strong>Sensor 2 (Channel 2)</strong>
+                        <span id="sim2-status" class="badge bg-secondary">Stopped</span>
+                    </div>
+                    <div class="card-body">
+                        <div class="row">
+                            <div class="col-6">
+                                <h6>True Pressure</h6>
+                                <h3 id="s2-true" class="text-primary">0.000 bar</h3>
+                            </div>
+                            <div class="col-6">
+                                <h6>Measured</h6>
+                                <h3 id="s2-measured" class="text-success">0.000 bar</h3>
+                            </div>
+                        </div>
+                        <div class="row mt-2">
+                            <div class="col-6">
+                                <small class="text-muted">Current: <span id="s2-ma">4.00</span> mA</small>
+                            </div>
+                            <div class="col-6">
+                                <small class="text-muted">MODBUS: <span id="s2-modbus">0</span></small>
+                            </div>
+                        </div>
+                        <hr>
+                        <div class="mb-3">
+                            <label class="form-label">Target Pressure (bar)</label>
+                            <input type="number" id="s2-target" class="form-control form-control-sm"
+                                   min="0" max="1.6" step="0.1" value="1.5">
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label">Rate (bar/min)</label>
+                            <input type="number" id="s2-rate" class="form-control form-control-sm"
+                                   min="0.01" max="1000" step="0.1" value="10">
+                        </div>
+                        <div class="btn-group w-100 mb-2">
+                            <button class="btn btn-success btn-sm" onclick="startSim(2)">Start</button>
+                            <button class="btn btn-warning btn-sm" onclick="stopSim(2)">Stop</button>
+                            <button class="btn btn-secondary btn-sm" onclick="resetSim(2)">Reset</button>
+                        </div>
+                        <div class="btn-group w-100">
+                            <button id="s2-fault-wire" class="btn btn-outline-danger btn-sm" onclick="setFault(2, 'wire_break')">0mA</button>
+                            <button id="s2-fault-defect" class="btn btn-outline-danger btn-sm" onclick="setFault(2, 'sensor_defect')">25mA</button>
+                            <button id="s2-fault-clear" class="btn btn-outline-secondary btn-sm" onclick="setFault(2, null)">Normal</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Charts -->
+        <div class="row">
+            <div class="col-12 mb-3">
+                <div class="card">
+                    <div class="card-header">Pressure History</div>
+                    <div class="card-body">
+                        <canvas id="pressureChart" height="200"></canvas>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="row">
+            <!-- Timing Stats -->
+            <div class="col-md-6 mb-3">
+                <div class="card">
+                    <div class="card-header">Timing Statistics</div>
+                    <div class="card-body">
+                        <table class="table table-sm">
+                            <tr>
+                                <td>Avg Response</td>
+                                <td id="timing-avg">0.00 ms</td>
+                            </tr>
+                            <tr>
+                                <td>Min/Max</td>
+                                <td><span id="timing-min">0.00</span> / <span id="timing-max">0.00</span> ms</td>
+                            </tr>
+                            <tr>
+                                <td>Jitter (StdDev)</td>
+                                <td id="timing-jitter">0.00 ms</td>
+                            </tr>
+                            <tr>
+                                <td>Total Requests</td>
+                                <td id="timing-total">0</td>
+                            </tr>
+                        </table>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Hub Control -->
+            <div class="col-md-6 mb-3">
+                <div class="card">
+                    <div class="card-header d-flex justify-content-between align-items-center">
+                        <strong>MODBUS Hub</strong>
+                        <span id="hub-status" class="badge bg-secondary">Idle</span>
+                    </div>
+                    <div class="card-body">
+                        <p class="small text-muted mb-2">
+                            Trigger Slave: <span id="hub-slave">-</span>,
+                            Register: <span id="hub-register">-</span>
+                        </p>
+                        <p class="small text-muted mb-3">
+                            Affected: Sensor <span id="hub-affected">-</span>,
+                            Drop Rate: <span id="hub-rate">-</span> bar/s
+                        </p>
+                        <button class="btn btn-danger w-100" onclick="triggerHub()">
+                            Trigger Pressure Drop
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="row">
+            <!-- Device Configuration -->
+            <div class="col-md-6 mb-3">
+                <div class="card">
+                    <div class="card-header">
+                        <strong>Device Configuration</strong>
+                    </div>
+                    <div class="card-body">
+                        <div class="row mb-2">
+                            <div class="col-6">
+                                <small class="text-muted">Slave ID: <span id="dev-slave-id">1</span></small>
+                            </div>
+                            <div class="col-6">
+                                <small class="text-muted">Version: <span id="dev-version">-</span></small>
+                            </div>
+                        </div>
+                        <hr>
+                        <div class="mb-3">
+                            <label class="form-label">Device Address</label>
+                            <div class="input-group input-group-sm">
+                                <input type="number" id="dev-address" class="form-control"
+                                       min="1" max="255" value="1">
+                                <button class="btn btn-outline-primary" onclick="setDeviceAddress()">Set</button>
+                            </div>
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label">Baud Rate</label>
+                            <select id="dev-baudrate" class="form-select form-select-sm">
+                                <option value="4800">4800</option>
+                                <option value="9600" selected>9600</option>
+                                <option value="19200">19200</option>
+                                <option value="38400">38400</option>
+                                <option value="57600">57600</option>
+                                <option value="115200">115200</option>
+                            </select>
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label">Parity</label>
+                            <select id="dev-parity" class="form-select form-select-sm">
+                                <option value="N" selected>None</option>
+                                <option value="E">Even</option>
+                                <option value="O">Odd</option>
+                            </select>
+                        </div>
+                        <button class="btn btn-primary btn-sm w-100" onclick="setUartParams()">
+                            Apply UART Settings
+                        </button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Data Types -->
+            <div class="col-md-6 mb-3">
+                <div class="card">
+                    <div class="card-header">
+                        <strong>Channel Data Types</strong>
+                    </div>
+                    <div class="card-body">
+                        <table class="table table-sm mb-0">
+                            <thead>
+                                <tr>
+                                    <th>CH</th>
+                                    <th>Type</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <tr>
+                                    <td>1</td>
+                                    <td id="dtype-1">4-20mA</td>
+                                </tr>
+                                <tr>
+                                    <td>2</td>
+                                    <td id="dtype-2">4-20mA</td>
+                                </tr>
+                                <tr>
+                                    <td>3-8</td>
+                                    <td class="text-muted">Unused</td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="/static/js/app.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
+</body>
+</html>

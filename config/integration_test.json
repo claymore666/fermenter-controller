@@ -1,0 +1,70 @@
+{
+  "wifi": {
+    "ssid": "BreweryNetwork",
+    "password": "",
+    "hostname": "fermenter"
+  },
+  "timing": {
+    "modbus": {
+      "poll_interval_ms": 1000,
+      "timeout_ms": 1000,
+      "max_retries": 3
+    },
+    "scheduler": {
+      "base_cycle_ms": 500,
+      "base_samples_per_cycle": 3
+    },
+    "pid": {
+      "calculation_interval_ms": 5000,
+      "output_cycle_time_ms": 60000
+    },
+    "safety": {
+      "max_temp_deviation": 3.0,
+      "max_pressure_bar": 2.5
+    }
+  },
+  "modbus": {
+    "devices": [
+      {
+        "address": 1,
+        "type": "analog_8ch",
+        "name": "Waveshare Analog",
+        "registers": [
+          {"name": "fermenter_1_pressure", "reg": 0, "scale": 0.0000488, "priority": "high", "filter": "ema", "filter_alpha": 0.3, "min_raw": 800, "max_raw": 32000},
+          {"name": "fermenter_2_pressure", "reg": 1, "scale": 0.0000488, "priority": "high", "filter": "moving_avg", "filter_window": 5, "min_raw": 800, "max_raw": 32000}
+        ]
+      }
+    ]
+  },
+  "gpio": {
+    "esp32_relays": {
+      "DO1": {"name": "fermenter_1_cooling", "type": "solenoid_nc"},
+      "DO2": {"name": "fermenter_1_spunding", "type": "solenoid_no"},
+      "DO3": {"name": "fermenter_2_cooling", "type": "solenoid_nc"},
+      "DO4": {"name": "fermenter_2_spunding", "type": "solenoid_no"}
+    }
+  },
+  "fermenters": [
+    {
+      "id": 1,
+      "name": "F1",
+      "pressure_sensor": "fermenter_1_pressure",
+      "cooling_relay": "fermenter_1_cooling",
+      "spunding_relay": "fermenter_1_spunding"
+    },
+    {
+      "id": 2,
+      "name": "F2",
+      "pressure_sensor": "fermenter_2_pressure",
+      "cooling_relay": "fermenter_2_cooling",
+      "spunding_relay": "fermenter_2_spunding"
+    }
+  ],
+  "mqtt": {
+    "enabled": false
+  },
+  "ntp": {
+    "server": "pool.ntp.org",
+    "enabled": true
+  }
+}

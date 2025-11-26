@@ -1,0 +1,56 @@
+# PlatformIO
+.pio/
+.pioenvs/
+.piolibdeps/
+
+# ESP-IDF
+build/
+sdkconfig
+sdkconfig.old
+managed_components/
+
+# External components (fetched by scripts/setup_mdns.sh)
+components/mdns/
+
+# Python
+venv/
+__pycache__/
+*.pyc
+*.pyo
+.Python
+*.egg-info/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+
+# Environment files with secrets
+.env
+
+# Backup files
+*.bak
+*.orig
+
+# Test certificates (for development only)
+certs/
+
+# Compiled test binaries
+test/test_web_server/web_server
+
+# MODBUS simulator runtime files
+modbus_simulator/.vport.pid
+modbus_simulator/vport_client
+modbus_simulator/vport_simulator
+
+# Dependencies lock file (generated)
+dependencies.lock

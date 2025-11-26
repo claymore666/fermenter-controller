@@ -1,0 +1,84 @@
+{
+  "wifi": {
+    "ssid": "BreweryNetwork",
+    "password": "",
+    "hostname": "fermenter"
+  },
+  "timing": {
+    "modbus": {
+      "poll_interval_ms": 5000,
+      "timeout_ms": 1000,
+      "max_retries": 3
+    },
+    "scheduler": {
+      "base_cycle_ms": 1000,
+      "base_samples_per_cycle": 3
+    },
+    "pid": {
+      "calculation_interval_ms": 5000,
+      "output_cycle_time_ms": 60000
+    },
+    "safety": {
+      "max_temp_deviation": 3.0,
+      "max_pressure_bar": 2.5
+    }
+  },
+  "modbus": {
+    "devices": [
+      {
+        "address": 1,
+        "type": "pt1000_8ch",
+        "name": "PT1000 Module",
+        "registers": [
+          {"name": "glycol_supply", "reg": 0, "scale": 0.1, "priority": "low"},
+          {"name": "glycol_return", "reg": 1, "scale": 0.1, "priority": "low"},
+          {"name": "fermenter_1_temp", "reg": 2, "scale": 0.1, "priority": "high", "extra_samples_per_second": 5},
+          {"name": "fermenter_2_temp", "reg": 3, "scale": 0.1, "priority": "high", "extra_samples_per_second": 5}
+        ]
+      },
+      {
+        "address": 2,
+        "type": "analog_8ch",
+        "name": "Analog Module",
+        "registers": [
+          {"name": "fermenter_1_pressure", "reg": 0, "scale": 0.001, "priority": "critical", "extra_samples_per_second": 10},
+          {"name": "fermenter_2_pressure", "reg": 1, "scale": 0.001, "priority": "critical", "extra_samples_per_second": 10}
+        ]
+      }
+    ]
+  },
+  "gpio": {
+    "esp32_relays": {
+      "DO1": {"name": "glycol_chiller", "type": "contactor_coil"},
+      "DO2": {"name": "fermenter_1_cooling", "type": "solenoid_nc"},
+      "DO3": {"name": "fermenter_1_spunding", "type": "solenoid_no"},
+      "DO4": {"name": "fermenter_2_cooling", "type": "solenoid_nc"},
+      "DO5": {"name": "fermenter_2_spunding", "type": "solenoid_no"}
+    }
+  },
+  "fermenters": [
+    {
+      "id": 1,
+      "name": "F1",
+      "temp_sensor": "fermenter_1_temp",
+      "pressure_sensor": "fermenter_1_pressure",
+      "cooling_relay": "fermenter_1_cooling",
+      "spunding_relay": "fermenter_1_spunding"
+    },
+    {
+      "id": 2,
+      "name": "F2",
+      "temp_sensor": "fermenter_2_temp",
+      "pressure_sensor": "fermenter_2_pressure",
+      "cooling_relay": "fermenter_2_cooling",
+      "spunding_relay": "fermenter_2_spunding"
+    }
+  ],
+  "mqtt": {
+    "enabled": false
+  },
+  "ntp": {
+    "server": "pool.ntp.org",
+    "enabled": true
+  }
+}

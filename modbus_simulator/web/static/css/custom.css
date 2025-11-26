@@ -1,0 +1,54 @@
+/* Custom styles for MODBUS RTU Simulator */
+
+body {
+    background-color: #f8f9fa;
+}
+
+.card {
+    box-shadow: 0 0.125rem 0.25rem rgba(0, 0, 0, 0.075);
+}
+
+.card-header {
+    background-color: #e9ecef;
+    font-weight: 500;
+}
+
+h3 {
+    font-family: 'Courier New', monospace;
+    font-weight: bold;
+}
+
+.badge {
+    font-size: 0.75rem;
+}
+
+.table-sm td {
+    padding: 0.3rem 0.5rem;
+}
+
+#pressureChart {
+    max-height: 250px;
+}
+
+.btn-group .btn {
+    flex: 1;
+}
+
+.form-control-sm {
+    font-size: 0.875rem;
+}
+
+/* Connection status indicator */
+#connection-status {
+    transition: background-color 0.3s ease;
+}
+
+/* Animated values */
+.value-changed {
+    animation: highlight 0.5s ease;
+}
+
+@keyframes highlight {
+    0% { background-color: rgba(255, 193, 7, 0.3); }
+    100% { background-color: transparent; }
+}
