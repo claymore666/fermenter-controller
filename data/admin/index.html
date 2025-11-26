@@ -130,16 +130,24 @@
 
                 <!-- Main Content -->
                 <div class="col-md-10">
+                    <!-- Loading Overlay -->
+                    <div id="loading-overlay" class="text-center py-5" style="display: none;">
+                        <div class="spinner-border text-primary mb-3" role="status">
+                            <span class="visually-hidden">Loading...</span>
+                        </div>
+                        <div class="text-muted">Loading device data...</div>
+                    </div>
+
                     <!-- Status Panel -->
                     <div id="panel-status" class="panel">
                         <div class="card mb-3">
                             <div class="card-header">
-                                <strong id="status-version">Fermenter Controller v1.0.0</strong>
-                                <span class="text-muted ms-2" id="status-build">(build 251124)</span>
+                                <strong id="status-version">Fermenter Controller</strong>
+                                <span class="text-muted ms-2" id="status-build"></span>
                             </div>
                             <div class="card-body">
-                                <div id="status-built" class="text-muted small mb-1">Built: Nov 24 2025 14:30:00</div>
-                                <div class="small mb-2"><a id="status-hostname" href="#" class="text-info" target="_blank">--</a></div>
+                                <div id="status-built" class="text-muted small mb-1"></div>
+                                <div class="small mb-2"><a id="status-hostname" href="#" class="text-info" target="_blank"></a></div>
                                 <div class="row mt-2">
                                     <div class="col-3">
                                         <span class="text-muted small">Flash:</span>
@@ -726,10 +734,17 @@
             el.style.display = 'block';
         }
 
+        let initialLoadComplete = false;
+
         function showApp() {
             document.getElementById('setup').style.display = 'none';
             document.getElementById('login').style.display = 'none';
             document.getElementById('app').style.display = 'block';
+            // Show loading overlay until first data arrives
+            if (!initialLoadComplete) {
+                document.getElementById('loading-overlay').style.display = 'block';
+                document.querySelectorAll('.panel').forEach(p => p.style.display = 'none');
+            }
             refreshAll();
             refreshCpuHistory();
             refreshNetworkHistory();
@@ -787,6 +802,13 @@
 
                 document.getElementById('connectionStatus').textContent = 'Connected';
                 document.getElementById('connectionStatus').className = 'nav-item badge bg-success me-2';
+
+                // Hide loading overlay on first successful load
+                if (!initialLoadComplete) {
+                    initialLoadComplete = true;
+                    document.getElementById('loading-overlay').style.display = 'none';
+                    document.querySelectorAll('.panel').forEach(p => p.style.display = '');
+                }
             } catch (err) {
                 document.getElementById('connectionStatus').textContent = 'Error';
                 document.getElementById('connectionStatus').className = 'nav-item badge bg-danger me-2';
