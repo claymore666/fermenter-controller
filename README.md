@@ -67,6 +67,26 @@ pio run -e esp32_wifi -t upload
 | `esp32_wifi` | WiFi + NTP + HTTPS | `pio run -e esp32_wifi` |
 | `esp32_full` | Full features (WiFi + HTTP + MQTT) | `pio run -e esp32_full` |
 
+## Status LED
+
+The WS2812 RGB LED on GPIO38 indicates device state:
+
+| Color | Pattern | Meaning |
+|-------|---------|---------|
+| Blue | Solid | Booting / WiFi provisioning mode |
+| Blue | Blink | SSL certificate generation (~9 sec on first boot) |
+| Green | Solid | All OK - WiFi connected, NTP synced |
+| Yellow | Slow blink | Warning - WiFi or NTP not connected |
+| Red | Solid | Sensor failure detected |
+| Red | Fast blink | Critical alarm active |
+
+### Boot Sequence
+
+1. **Blue** - System initializing
+2. **Blue blink** - Generating SSL certificate (first boot only, ~9 seconds)
+3. **Blue** - Connecting to WiFi
+4. **Green** - Boot complete, all systems OK
+
 ## Device Access
 
 After WiFi provisioning, access the device at:
@@ -76,6 +96,42 @@ https://fermenter-XXXXXX.local/admin/
 Where `XXXXXX` is the last 3 bytes of the WiFi MAC address (uppercase hex).
 
 First boot requires password setup (8+ chars, complexity requirements).
+
+## Initial Setup
+
+### WiFi Configuration via Console
+
+Connect via USB serial (115200 baud) and use these commands:
+
+```bash
+# Connect to serial
+pio device monitor
+
+# Scan for networks
+wifi scan
+
+# Configure WiFi credentials
+wifi set MyNetwork MyPassword
+
+# Check connection status
+wifi
+```
+
+### Setup Commands Reference
+
+| Command | Description |
+|---------|-------------|
+| `wifi set <ssid> <pass>` | Set WiFi credentials |
+| `wifi scan` | Scan available networks |
+| `wifi clear` | Clear stored credentials |
+| `wifi` | Show connection status |
+| `ssl status` | Check certificate status |
+| `ssl clear` | Delete cert (regenerates on reboot) |
+| `nvs list` | List stored settings |
+| `factory_reset` | Erase all settings and reboot |
+| `reboot` | Restart device |
+| `status` | System overview |
+| `help` | Show all commands |
 
 ### Debug Console
 
@@ -88,7 +144,7 @@ screen /dev/ttyACM0 115200
 pio device monitor
 ```
 
-Type `help` for available commands.
+Type `help` for all available commands. See [docs/DEBUG_CONSOLE.md](docs/DEBUG_CONSOLE.md) for full reference.
 
 ## Documentation
 

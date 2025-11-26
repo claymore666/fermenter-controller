@@ -27,6 +27,7 @@
 #include "esp_https_server.h"
 #include "esp_log.h"
 #include "esp_spiffs.h"
+#include "esp_wifi.h"
 #include <time.h>
 #include <lwip/sockets.h>
 #include <arpa/inet.h>
@@ -1769,8 +1770,18 @@ public:
         uint32_t flash_used = 1015808;   // Will be updated at build time
         uint32_t flash_total = 4194304;  // 4MB OTA partition
 
+        // Get hostname from WiFi MAC address
+        char hostname[32] = "fermenter";
+#ifdef ESP32_BUILD
+        uint8_t mac[6];
+        esp_wifi_get_mac(WIFI_IF_STA, mac);
+        snprintf(hostname, sizeof(hostname), "fermenter-%02X%02X%02X.local",
+                 mac[3], mac[4], mac[5]);
+#endif
+
         snprintf(response, response_size,
             "{\"version\":\"%s\",\"build\":\"%s\",\"built\":\"%s %s\","
+            "\"hostname\":\"%s\","
             "\"uptime\":\"%luh %lum %lus\",\"uptime_seconds\":%lu,"
             "\"free_heap\":%lu,\"cpu_usage\":%.1f,\"cpu_freq_mhz\":%lu,\"cpu_freq_max_mhz\":%lu,"
             "\"wifi_rssi\":%d,\"ntp_synced\":%s,"
@@ -1779,6 +1790,7 @@ public:
             "\"system_time\":\"%s\",\"timezone\":\"%s\","
             "\"flash_used\":%lu,\"flash_total\":%lu}",
             FIRMWARE_VERSION, build_num, __DATE__, __TIME__,
+            hostname,
             (unsigned long)uptime_h, (unsigned long)uptime_m, (unsigned long)uptime_s,
             (unsigned long)sys.uptime_seconds,
             (unsigned long)sys.free_heap, sys.cpu_usage,
