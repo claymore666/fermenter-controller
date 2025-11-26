@@ -1,5 +1,7 @@
 # Fermentation Controller
 
+[![Nightly Build](https://github.com/claymore666/fermenter-controller/actions/workflows/nightly.yml/badge.svg)](https://github.com/claymore666/fermenter-controller/actions/workflows/nightly.yml)
+
 ESP32-S3 based fermentation controller for brewery automation with MODBUS RTU sensors, PID temperature control, and REST API.
 
 ## Hardware
