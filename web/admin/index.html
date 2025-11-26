@@ -937,7 +937,7 @@
             const container = document.getElementById('relays-list');
             container.innerHTML = relays.map((r, idx) => {
                 const safeName = escapeHtml(r.name);
-                const safeNameAttr = r.name.replace(/'/g, "\\'");
+                const safeNameAttr = r.name.replace(/\\/g, '\\\\').replace(/'/g, "\\'");
                 return `
                 <div class="col-md-3 mb-3">
                     <div class="card">
@@ -957,7 +957,7 @@
             const statusContainer = document.getElementById('relays-status-list');
             statusContainer.innerHTML = relays.map((r, idx) => {
                 const safeName = escapeHtml(r.name);
-                const safeNameAttr = r.name.replace(/'/g, "\\'");
+                const safeNameAttr = r.name.replace(/\\/g, '\\\\').replace(/'/g, "\\'");
                 return `
                 <div class="d-flex justify-content-between align-items-center mb-2">
                     <span>${safeName}</span>

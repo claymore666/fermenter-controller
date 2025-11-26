@@ -76,6 +76,7 @@ public:
         , echo_enabled_(true)
         , log_events_(false)
         , log_errors_(true)
+        , tls_debug_enabled_(false)
         , last_activity_ms_(0) {
         memset(cmd_buffer_, 0, sizeof(cmd_buffer_));
     }
@@ -158,6 +159,7 @@ private:
     bool echo_enabled_;
     bool log_events_;
     bool log_errors_;
+    bool tls_debug_enabled_;
     uint32_t last_activity_ms_;
 
     void print_welcome() {
@@ -257,6 +259,8 @@ private:
             cmd_heap();
         } else if (strcmp(args[0], "uptime") == 0) {
             cmd_uptime();
+        } else if (strcmp(args[0], "cpu") == 0) {
+            cmd_cpu();
         } else if (strcmp(args[0], "reboot") == 0) {
             cmd_reboot();
         } else if (strcmp(args[0], "shutdown") == 0) {
@@ -342,6 +346,7 @@ private:
         serial_->println("");
         serial_->println("  ssl status          - SSL certificate status");
         serial_->println("  ssl clear           - Delete cert (regenerates on reboot)");
+        serial_->println("  ssl debug [on|off]  - Toggle TLS handshake messages");
         serial_->println("");
         serial_->println("  cpu                 - CPU usage percentage");
         serial_->println("  inputs              - Show digital inputs DI1-8");
@@ -461,8 +466,20 @@ private:
 #ifdef WIFI_NTP_ENABLED
         if (sys.wifi_rssi != 0) {
             printf("  WiFi .............. OK (%d dBm)\r\n", sys.wifi_rssi);
+            // Show WiFi IP
+            if (wifi_prov_) {
+                const char* ip = wifi_prov_->get_ip_address();
+                if (ip) {
+                    printf("    IP: %s\r\n", ip);
+                }
+            }
         } else if (wifi_prov_ && wifi_prov_->is_standby()) {
             serial_->println("  WiFi .............. HOT STANDBY");
+            // Show WiFi IP even in standby (IP is retained)
+            const char* ip = wifi_prov_->get_ip_address();
+            if (ip) {
+                printf("    IP: %s\r\n", ip);
+            }
         } else {
             serial_->println("  WiFi .............. DISCONNECTED");
         }
@@ -471,6 +488,22 @@ private:
         printf("  NTP ............... %s\r\n", sys.ntp_synced ? "SYNCED" : "NOT SYNCED");
 #else
         serial_->println("  WiFi .............. [not compiled]");
+#endif
+
+        // Ethernet
+#if defined(ESP32_BUILD) && defined(ETHERNET_ENABLED)
+        if (ethernet_) {
+            auto* eth = static_cast<hal::esp32::ESP32Ethernet*>(ethernet_);
+            if (eth->is_connected()) {
+                printf("  Ethernet .......... OK (%d Mbps)\r\n", eth->get_link_speed());
+                const char* ip = eth->get_ip_address();
+                if (ip) {
+                    printf("    IP: %s\r\n", ip);
+                }
+            } else {
+                serial_->println("  Ethernet .......... DISCONNECTED");
+            }
+        }
 #endif
 
         // MODBUS devices
@@ -839,6 +872,55 @@ private:
         printf("Uptime: %lud %02lu:%02lu:%02lu\r\n",
                (unsigned long)days, (unsigned long)hours,
                (unsigned long)mins, (unsigned long)s);
+    }
+
+    void cmd_cpu() {
+        auto& sys = state_->get_system_state();
+
+#ifdef ESP32_BUILD
+        // Get CPU frequency
+        printf("CPU Frequency: %lu MHz (max: %lu MHz)\r\n",
+               (unsigned long)sys.cpu_freq_mhz,
+               (unsigned long)sys.cpu_freq_max_mhz);
+
+#ifdef CONFIG_FREERTOS_USE_TRACE_FACILITY
+        // Calculate CPU usage from FreeRTOS runtime stats
+        uint32_t cpu_percent = 0;
+        TaskStatus_t* task_array;
+        UBaseType_t task_count = uxTaskGetNumberOfTasks();
+        uint32_t total_runtime;
+
+        task_array = (TaskStatus_t*)pvPortMalloc(task_count * sizeof(TaskStatus_t));
+        if (task_array) {
+            task_count = uxTaskGetSystemState(task_array, task_count, &total_runtime);
+            if (total_runtime > 0) {
+                uint32_t idle_runtime = 0;
+                for (UBaseType_t i = 0; i < task_count; i++) {
+                    if (strcmp(task_array[i].pcTaskName, "IDLE") == 0 ||
+                        strcmp(task_array[i].pcTaskName, "IDLE0") == 0 ||
+                        strcmp(task_array[i].pcTaskName, "IDLE1") == 0) {
+                        idle_runtime += task_array[i].ulRunTimeCounter;
+                    }
+                }
+                uint64_t idle_pct = (uint64_t)idle_runtime * 100ULL / total_runtime;
+                if (idle_pct <= 100) {
+                    cpu_percent = 100 - (uint32_t)idle_pct;
+                }
+            }
+            vPortFree(task_array);
+        }
+
+        printf("CPU Usage: %lu%%\r\n", (unsigned long)cpu_percent);
+        printf("Tasks: %lu\r\n", (unsigned long)task_count);
+#else
+        printf("CPU Usage: %.1f%% (from state manager)\r\n", sys.cpu_usage);
+#endif
+
+#else
+        // Simulator
+        printf("CPU Usage: %.1f%%\r\n", sys.cpu_usage);
+        printf("CPU Frequency: %lu MHz\r\n", (unsigned long)sys.cpu_freq_mhz);
+#endif
     }
 
     void cmd_modules() {
@@ -1373,9 +1455,10 @@ private:
 
     void cmd_ssl(int argc, char** args) {
         if (argc < 2) {
-            serial_->println("SSL Certificate Commands:");
-            serial_->println("  ssl status  - Show certificate status");
-            serial_->println("  ssl clear   - Delete stored certificate");
+            serial_->println("SSL/TLS Commands:");
+            serial_->println("  ssl status      - Show certificate status");
+            serial_->println("  ssl clear       - Delete stored certificate");
+            serial_->println("  ssl debug [on|off] - Toggle TLS handshake messages");
             return;
         }
 
@@ -1397,6 +1480,7 @@ private:
             } else {
                 serial_->println("Certificate: not stored");
             }
+            printf("TLS debug output: %s\r\n", tls_debug_enabled_ ? "enabled" : "disabled");
 #else
             serial_->println("Not available in simulator");
 #endif
@@ -1417,8 +1501,34 @@ private:
 #else
             serial_->println("Not available in simulator");
 #endif
+        } else if (strcmp(args[1], "debug") == 0) {
+#ifdef ESP32_BUILD
+            if (argc >= 3) {
+                if (strcmp(args[2], "on") == 0) {
+                    tls_debug_enabled_ = true;
+                    esp_log_level_set("esp-tls", ESP_LOG_INFO);
+                    esp_log_level_set("esp_tls_mbedtls", ESP_LOG_INFO);
+                    esp_log_level_set("esp-tls-mbedtls", ESP_LOG_INFO);
+                    esp_log_level_set("mbedtls", ESP_LOG_INFO);
+                    serial_->println("TLS debug output: enabled");
+                } else if (strcmp(args[2], "off") == 0) {
+                    tls_debug_enabled_ = false;
+                    esp_log_level_set("esp-tls", ESP_LOG_WARN);
+                    esp_log_level_set("esp_tls_mbedtls", ESP_LOG_WARN);
+                    esp_log_level_set("esp-tls-mbedtls", ESP_LOG_WARN);
+                    esp_log_level_set("mbedtls", ESP_LOG_WARN);
+                    serial_->println("TLS debug output: disabled");
+                } else {
+                    serial_->println("Usage: ssl debug [on|off]");
+                }
+            } else {
+                printf("TLS debug output: %s\r\n", tls_debug_enabled_ ? "enabled" : "disabled");
+            }
+#else
+            serial_->println("Not available in simulator");
+#endif
         } else {
-            serial_->println("Unknown ssl subcommand. Use: ssl status | ssl clear");
+            serial_->println("Unknown ssl subcommand. Use: ssl status | ssl clear | ssl debug");
         }
     }
 
