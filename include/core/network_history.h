@@ -113,6 +113,21 @@ public:
     uint64_t get_total_rx_bytes() const { return current_rx_; }
 
     /**
+     * Reset history when switching network interfaces
+     * Clears samples but preserves traffic counters
+     */
+    void reset() {
+        write_index_ = 0;
+        count_ = 0;
+        for (uint8_t i = 0; i < MAX_SAMPLES; i++) {
+            samples_[i] = 0;
+        }
+        // Update last values to avoid huge spike on next sample
+        last_tx_ = current_tx_;
+        last_rx_ = current_rx_;
+    }
+
+    /**
      * Get the maximum value in the history (for Y-axis scaling)
      */
     uint8_t get_max_value() const {

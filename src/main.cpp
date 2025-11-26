@@ -211,6 +211,7 @@ static void evaluate_network_failover() {
         if (gateways_match(wifi_gw, eth_gw)) {
             ESP_LOGI("NetMgr", "Same gateway detected - WiFi entering standby, Ethernet primary");
             g_wifi_prov->enter_standby();
+            g_state.reset_network_history();  // Reset graph when switching to Ethernet
         } else {
             ESP_LOGI("NetMgr", "Different networks - keeping both interfaces active");
         }
@@ -218,6 +219,7 @@ static void evaluate_network_failover() {
         // Ethernet down, WiFi in standby - failover to WiFi
         ESP_LOGI("NetMgr", "Ethernet down - failing over to WiFi");
         g_wifi_prov->resume_from_standby();
+        g_state.reset_network_history();  // Reset graph when switching to WiFi
     }
 }
 
@@ -612,12 +614,21 @@ void control_loop() {
     // Add network history sample every 15 seconds
     static uint32_t last_net_sample_ms = 0;
     if (now_ms - last_net_sample_ms >= core::NetworkHistory::SAMPLE_INTERVAL_MS) {
+        bool sampled = false;
 #ifdef WIFI_NTP_ENABLED
         if (g_wifi_prov && g_wifi_prov->is_connected()) {
             g_state.sample_network_history(
                 g_wifi_prov->get_link_speed_mbps(),
                 g_wifi_prov->get_channel()
             );
+            sampled = true;
+        }
+#endif
+#ifdef ETHERNET_ENABLED
+        // Sample from Ethernet if WiFi not connected (e.g., WiFi in standby)
+        if (!sampled && g_ethernet && g_ethernet->is_connected()) {
+            auto& info = g_ethernet->get_info();
+            g_state.sample_network_history(info.link_speed_mbps, 0);  // Ethernet has no channel
         }
 #endif
         last_net_sample_ms = now_ms;

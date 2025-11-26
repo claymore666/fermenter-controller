@@ -1168,6 +1168,8 @@
                 if (wifi.connected) {
                     wifiBadge.textContent = 'Connected';
                     wifiBadge.className = 'badge bg-success float-end';
+                    wifiBadge.style.backgroundColor = '';
+                    wifiBadge.style.color = '';
                     document.getElementById('net-wifi-ssid').textContent = escapeHtml(wifi.ssid || '--');
                     document.getElementById('net-wifi-ip').textContent = escapeHtml(wifi.ip || '--');
                     document.getElementById('net-wifi-netmask').textContent = escapeHtml(wifi.netmask || '--');
@@ -1176,9 +1178,21 @@
                     const rssiEl = document.getElementById('net-wifi-rssi');
                     rssiEl.textContent = rssiText;
                     rssiEl.className = wifi.rssi > -70 ? 'status-good' : wifi.rssi > -85 ? 'status-warning' : 'status-bad';
+                } else if (wifi.standby) {
+                    wifiBadge.textContent = 'Hot Standby';
+                    wifiBadge.className = 'badge float-end';
+                    wifiBadge.style.backgroundColor = '#17a2b8';
+                    wifiBadge.style.color = '#000';
+                    document.getElementById('net-wifi-ssid').textContent = escapeHtml(wifi.ssid || '--');
+                    document.getElementById('net-wifi-ip').textContent = wifi.ip || '(standby)';
+                    document.getElementById('net-wifi-netmask').textContent = wifi.netmask || '(standby)';
+                    document.getElementById('net-wifi-gateway').textContent = wifi.gateway || '(standby)';
+                    document.getElementById('net-wifi-rssi').textContent = '(standby)';
                 } else {
                     wifiBadge.textContent = 'Disconnected';
                     wifiBadge.className = 'badge bg-secondary float-end';
+                    wifiBadge.style.backgroundColor = '';
+                    wifiBadge.style.color = '';
                     document.getElementById('net-wifi-ssid').textContent = '--';
                     document.getElementById('net-wifi-ip').textContent = '--';
                     document.getElementById('net-wifi-netmask').textContent = '--';

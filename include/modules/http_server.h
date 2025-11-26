@@ -2509,15 +2509,16 @@ public:
 #ifdef WIFI_NTP_ENABLED
         if (wifi_prov_) {
             offset += snprintf(response + offset, response_size - offset,
-                "\"wifi\":{\"connected\":%s,\"ip\":\"%s\",\"netmask\":\"%s\",\"gateway\":\"%s\",\"ssid\":\"%s\",\"rssi\":%d}",
+                "\"wifi\":{\"connected\":%s,\"standby\":%s,\"ip\":\"%s\",\"netmask\":\"%s\",\"gateway\":\"%s\",\"ssid\":\"%s\",\"rssi\":%d}",
                 wifi_prov_->is_connected() ? "true" : "false",
+                wifi_prov_->is_standby() ? "true" : "false",
                 wifi_prov_->get_ip_address() ? wifi_prov_->get_ip_address() : "",
                 wifi_prov_->get_netmask() ? wifi_prov_->get_netmask() : "",
                 wifi_prov_->get_gateway() ? wifi_prov_->get_gateway() : "",
                 wifi_prov_->get_ssid() ? wifi_prov_->get_ssid() : "",
                 wifi_prov_->get_rssi());
         } else {
-            offset += snprintf(response + offset, response_size - offset, "\"wifi\":{\"connected\":false}");
+            offset += snprintf(response + offset, response_size - offset, "\"wifi\":{\"connected\":false,\"standby\":false}");
         }
 #else
         offset += snprintf(response + offset, response_size - offset, "\"wifi\":{\"enabled\":false}");

@@ -77,6 +77,7 @@ public:
     void sample_network_history(uint32_t link_speed_mbps, uint8_t channel);
     void add_network_tx_bytes(uint32_t bytes);
     void add_network_rx_bytes(uint32_t bytes);
+    void reset_network_history() { network_history_.reset(); }
     NetworkHistory& get_network_history() { return network_history_; }
     const NetworkHistory& get_network_history() const { return network_history_; }
 
