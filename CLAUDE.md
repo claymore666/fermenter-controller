@@ -207,7 +207,7 @@ When both WiFi and Ethernet are enabled, the device implements automatic network
 
 **Same network detection**: Compares gateway IP addresses. If both interfaces have the same gateway, they're considered on the same network.
 
-**WiFi standby mode**: WiFi station stays initialized but disconnected, allowing fast reconnection (~1-2 seconds) when Ethernet fails.
+**WiFi Hot Standby mode**: WiFi connection remains active (keeps IP) but route priority is lowered so traffic uses Ethernet. When Ethernet fails, traffic switches instantly to WiFi with no reconnection delay. The web interface shows a "Hot Standby" badge (cyan) for WiFi in this state.
 
 Debug console commands:
 - `wifi` - Shows WiFi status including standby state
