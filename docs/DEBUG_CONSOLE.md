@@ -238,7 +238,6 @@ Connected! IP: 192.168.0.140
 | `wifi disconnect` | Disconnect from WiFi (persistent) |
 | `wifi set <ssid> <password>` | Set WiFi credentials |
 | `wifi clear` | Clear stored credentials and start provisioning |
-| `wifi scan` | Scan for available networks |
 
 Example:
 ```
@@ -253,13 +252,6 @@ WiFi Status:
 WiFi Status:
   State: STANDBY (Ethernet primary)
   SSID: Braustube
-
-> wifi scan
-Scanning...
-Found 3 networks:
-  Braustube (-45 dBm) WPA2
-  Guest (-72 dBm) Open
-  Neighbor (-85 dBm) WPA2
 ```
 
 **Note**: When Ethernet is connected on the same network, WiFi enters STANDBY mode. It remains ready for fast failover if Ethernet link goes down.
