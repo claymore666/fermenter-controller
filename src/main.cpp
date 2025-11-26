@@ -682,8 +682,9 @@ void control_loop() {
         g_status_led->set_has_warnings(g_safety->has_active_warnings());
 
         // Check WiFi status
+        // Note: Standby counts as "connected" for LED - network is healthy via Ethernet
         if (g_wifi_prov) {
-            g_status_led->set_wifi_connected(g_wifi_prov->is_connected());
+            g_status_led->set_wifi_connected(g_wifi_prov->is_connected() || g_wifi_prov->is_standby());
             g_status_led->set_provisioning(g_wifi_prov->is_provisioning());
             g_status_led->set_ap_client_connected(g_wifi_prov->has_ap_clients());
         }
