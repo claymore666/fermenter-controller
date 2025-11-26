@@ -385,7 +385,13 @@ private:
         uint32_t uptime_s = sys.uptime_seconds % 60;
 
 #ifdef ESP32_BUILD
-        // Calculate CPU usage from FreeRTOS runtime stats
+        // Calculate heap percentage (ESP32-S3 has ~320KB total heap)
+        uint32_t total_heap_kb = 320;
+        uint32_t free_heap_kb = sys.free_heap / 1024;
+        uint32_t heap_percent = (free_heap_kb * 100) / total_heap_kb;
+
+#ifdef CONFIG_FREERTOS_USE_TRACE_FACILITY
+        // Calculate CPU usage from FreeRTOS runtime stats (requires trace facility)
         uint32_t cpu_percent = 0;
         TaskStatus_t* task_array;
         UBaseType_t task_count = uxTaskGetNumberOfTasks();
@@ -414,14 +420,14 @@ private:
             vPortFree(task_array);
         }
 
-        // Calculate heap percentage (ESP32-S3 has ~320KB total heap)
-        uint32_t total_heap_kb = 320;
-        uint32_t free_heap_kb = sys.free_heap / 1024;
-        uint32_t heap_percent = (free_heap_kb * 100) / total_heap_kb;
-
         printf("  Uptime: %luh %lum %lus | Heap: %luKB (%lu%%) | CPU: %lu%%\r\n",
                (unsigned long)uptime_h, (unsigned long)uptime_m, (unsigned long)uptime_s,
                (unsigned long)free_heap_kb, (unsigned long)heap_percent, (unsigned long)cpu_percent);
+#else
+        printf("  Uptime: %luh %lum %lus | Heap: %luKB (%lu%%)\r\n",
+               (unsigned long)uptime_h, (unsigned long)uptime_m, (unsigned long)uptime_s,
+               (unsigned long)free_heap_kb, (unsigned long)heap_percent);
+#endif
 
         // Date/time if NTP synced
         if (sys.ntp_synced) {
