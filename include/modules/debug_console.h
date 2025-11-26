@@ -334,6 +334,8 @@ private:
         serial_->println("  wifi clear          - Clear credentials & provision");
         serial_->println("");
         serial_->println("  eth                 - Ethernet status");
+        serial_->println("  eth connect         - Start Ethernet interface");
+        serial_->println("  eth disconnect      - Stop Ethernet interface");
         serial_->println("");
         serial_->println("  can                 - CAN bus status");
         serial_->println("  can send <id> <data...> - Send CAN message");
@@ -1017,8 +1019,6 @@ private:
     }
 
     void cmd_eth(int argc, char** args) {
-        (void)argc;
-        (void)args;
 #if defined(ESP32_BUILD) && defined(ETHERNET_ENABLED)
         if (!ethernet_) {
             serial_->println("Ethernet not available");
@@ -1027,6 +1027,29 @@ private:
 
         auto* eth = static_cast<hal::esp32::ESP32Ethernet*>(ethernet_);
 
+        if (argc >= 2) {
+            if (strcmp(args[1], "connect") == 0) {
+                serial_->println("Starting Ethernet...");
+                if (eth->start()) {
+                    serial_->println("Ethernet started. Waiting for DHCP...");
+                    if (eth->wait_for_connection(10000)) {
+                        printf("Connected! IP: %s\r\n", eth->get_ip_address());
+                    } else {
+                        serial_->println("Timeout waiting for DHCP. Check cable.");
+                    }
+                } else {
+                    serial_->println("Failed to start Ethernet");
+                }
+                return;
+            } else if (strcmp(args[1], "disconnect") == 0) {
+                serial_->println("Stopping Ethernet...");
+                eth->stop();
+                serial_->println("Ethernet stopped");
+                return;
+            }
+        }
+
+        // Default: show status
         serial_->println("Ethernet Status:");
         printf("  Connected: %s\r\n", eth->is_connected() ? "Yes" : "No");
 
@@ -1043,7 +1066,12 @@ private:
         } else {
             serial_->println("  Waiting for link...");
         }
+
+        serial_->println("");
+        serial_->println("Commands: eth connect | eth disconnect");
 #else
+        (void)argc;
+        (void)args;
         serial_->println("Ethernet not enabled in this build");
 #endif
     }
@@ -1098,22 +1126,69 @@ private:
         if (argc < 2) {
             serial_->println("Usage:");
             serial_->println("  nvs list                    - Show namespaces");
+            serial_->println("  nvs list <namespace>        - Show keys in namespace");
             serial_->println("  nvs get <ns>:<key>          - Read value");
             serial_->println("  nvs set <ns>:<key> <value>  - Write value");
             serial_->println("  nvs erase <ns>:<key>        - Delete key");
             serial_->println("");
             serial_->println("Examples:");
+            serial_->println("  nvs list wifi");
             serial_->println("  nvs get wifi:ssid");
             serial_->println("  nvs set config:brightness 50");
             return;
         }
 
         if (strcmp(args[1], "list") == 0) {
-            serial_->println("NVS namespaces:");
-            serial_->println("  wifi - WiFi credentials (ssid, password, auto_connect)");
-            serial_->println("  config - System configuration");
-            serial_->println("  fermenter - Fermentation plans & PID");
-            serial_->println("  calibration - Sensor calibration");
+            if (argc >= 3) {
+                // List keys in specific namespace: nvs list <namespace>
+                const char* ns = args[2];
+                printf("Keys in namespace '%s':\r\n", ns);
+
+                nvs_iterator_t it = nullptr;
+                esp_err_t err = nvs_entry_find("nvs", ns, NVS_TYPE_ANY, &it);
+                if (err == ESP_ERR_NVS_NOT_FOUND || it == nullptr) {
+                    printf("  (no keys found or namespace doesn't exist)\r\n");
+                } else {
+                    int count = 0;
+                    while (err == ESP_OK && it != nullptr) {
+                        nvs_entry_info_t info;
+                        nvs_entry_info(it, &info);
+
+                        const char* type_str = "?";
+                        switch (info.type) {
+                            case NVS_TYPE_U8:  type_str = "u8"; break;
+                            case NVS_TYPE_I8:  type_str = "i8"; break;
+                            case NVS_TYPE_U16: type_str = "u16"; break;
+                            case NVS_TYPE_I16: type_str = "i16"; break;
+                            case NVS_TYPE_U32: type_str = "u32"; break;
+                            case NVS_TYPE_I32: type_str = "i32"; break;
+                            case NVS_TYPE_U64: type_str = "u64"; break;
+                            case NVS_TYPE_I64: type_str = "i64"; break;
+                            case NVS_TYPE_STR: type_str = "string"; break;
+                            case NVS_TYPE_BLOB: type_str = "blob"; break;
+                            default: type_str = "unknown"; break;
+                        }
+                        printf("  %s (%s)\r\n", info.key, type_str);
+                        count++;
+
+                        err = nvs_entry_next(&it);
+                    }
+                    if (count == 0) {
+                        serial_->println("  (empty)");
+                    }
+                }
+                if (it != nullptr) {
+                    nvs_release_iterator(it);
+                }
+            } else {
+                // List namespaces (known ones)
+                serial_->println("NVS namespaces:");
+                serial_->println("  wifi       - WiFi credentials");
+                serial_->println("  fermenter  - SSL certs, auth, plans");
+                serial_->println("  nvs.net80211 - WiFi driver state");
+                serial_->println("");
+                serial_->println("Use 'nvs list <namespace>' to show keys");
+            }
         } else if (strcmp(args[1], "get") == 0) {
             if (argc < 3) {
                 serial_->println("Usage: nvs get <namespace>:<key>");
