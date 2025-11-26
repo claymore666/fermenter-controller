@@ -298,3 +298,110 @@ When a crash or watchdog timeout occurs, decode the backtrace:
 - Build and verify compilation without flashing for minor tweaks
 - ESP32 flash has ~10,000-100,000 write cycles - minimize unnecessary uploads
 - Always source venv before using pio: `source venv/bin/activate && pio run -e esp32_wifi`
+
+## Commit and Release Workflow
+
+**IMPORTANT**: All commits to GitHub must pass compilation and tests. Follow this workflow:
+
+### Pre-Commit Checklist (Mandatory)
+
+Before every commit, run these steps in order:
+
+```bash
+source venv/bin/activate
+
+# 1. Run test suite (must pass)
+pio test -e simulator
+
+# 2. Build ESP32 firmware (must compile without errors)
+pio run -e esp32_wifi
+```
+
+Both steps must succeed before committing. Do not commit code that fails tests or compilation.
+
+### Flashing Workflow (When User Requests)
+
+If the user wants to flash the device after changes:
+
+```bash
+# 1. Upload firmware
+pio run -e esp32_wifi -t upload
+
+# 2. Upload SPIFFS if data/ files changed (HTML, CSS, JS, config)
+pio run -e esp32_wifi -t uploadfs
+
+# 3. Verify boot via serial console
+python3 << 'EOF'
+import serial
+import time
+import sys
+
+ser = serial.Serial('/dev/ttyACM0', 115200, timeout=1)
+print("Waiting for device boot...")
+time.sleep(2)  # Wait for reboot
+
+boot_output = ""
+start_time = time.time()
+boot_success = False
+
+while time.time() - start_time < 30:  # 30 second timeout
+    data = ser.read(2048)
+    if data:
+        text = data.decode('utf-8', errors='replace')
+        boot_output += text
+        print(text, end='')
+
+        # Check for successful boot indicators
+        if "HTTP server started" in boot_output or "WiFi connected" in boot_output:
+            boot_success = True
+            break
+        # Check for crash indicators
+        if "Guru Meditation" in boot_output or "panic" in boot_output.lower():
+            print("\n\n*** BOOT FAILED - CRASH DETECTED ***")
+            ser.close()
+            sys.exit(1)
+
+ser.close()
+
+if boot_success:
+    print("\n\n*** BOOT SUCCESSFUL ***")
+else:
+    print("\n\n*** BOOT VERIFICATION TIMEOUT - Check manually ***")
+EOF
+```
+
+### What to Upload
+
+| Changed Files | Upload Commands |
+|---------------|-----------------|
+| `src/`, `include/` (C++ code) | `pio run -e esp32_wifi -t upload` |
+| `data/` (HTML, CSS, JS) | `pio run -e esp32_wifi -t uploadfs` |
+| Both | Both commands |
+
+### Release Workflow
+
+For releases (merging dev → main):
+
+1. **Run full test suite**: `pio test -e simulator`
+2. **Build all targets**:
+   ```bash
+   pio run -e esp32_wifi
+   pio run -e esp32
+   ```
+3. **Flash and verify boot** (see above)
+4. **Test key functionality** via web interface
+5. **Create PR** from `dev` to `main`
+6. **Tag release** on main: `git tag v0.1.0 && git push --tags`
+
+### Boot Success Indicators
+
+The boot verification script looks for these in serial output:
+
+| Indicator | Meaning |
+|-----------|---------|
+| `HTTP server started` | Web server initialized |
+| `WiFi connected` | Network connectivity OK |
+| `NTP synced` | Time synchronization OK |
+| `Guru Meditation` | **CRASH** - boot failed |
+| `panic` | **CRASH** - boot failed |
+| `watchdog` | **TIMEOUT** - possible hang |
