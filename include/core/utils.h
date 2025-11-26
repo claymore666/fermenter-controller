@@ -7,6 +7,8 @@
 
 #include <cstring>
 #include <cstdint>
+#include <cstdio>
+#include <cstdarg>
 #include "types.h"
 
 namespace core {
@@ -121,6 +123,44 @@ inline void bubble_sort(T* arr, size_t count, Compare compare) {
             }
         }
     }
+}
+
+/**
+ * Safe snprintf append - appends to buffer at offset with bounds checking
+ * @param buffer Target buffer
+ * @param size Total buffer size
+ * @param offset Current offset (updated on return)
+ * @param fmt Format string
+ * @param ... Format arguments
+ * @return Number of characters written (not including null terminator)
+ * @note Prevents buffer overflow by checking bounds before writing
+ *       and clamping offset if truncation would occur
+ */
+inline int safe_snprintf_append(char* buffer, size_t size, int& offset, const char* fmt, ...) {
+    // Check bounds before writing - if already at or past end, do nothing
+    if (buffer == nullptr || size == 0 || static_cast<size_t>(offset) >= size) {
+        return 0;
+    }
+
+    size_t remaining = size - static_cast<size_t>(offset);
+
+    va_list args;
+    va_start(args, fmt);
+    int written = vsnprintf(buffer + offset, remaining, fmt, args);
+    va_end(args);
+
+    // vsnprintf returns the number of chars that would have been written (not including null)
+    // If written >= remaining, truncation occurred
+    if (written > 0) {
+        if (static_cast<size_t>(written) >= remaining) {
+            // Truncation occurred - clamp offset to end of buffer (before null)
+            offset = static_cast<int>(size) - 1;
+        } else {
+            offset += written;
+        }
+    }
+
+    return written > 0 ? written : 0;
 }
 
 } // namespace core

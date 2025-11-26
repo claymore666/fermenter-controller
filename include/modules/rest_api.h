@@ -176,22 +176,22 @@ private:
         char json[4096];
         int offset = 0;
 
-        offset += snprintf(json + offset, sizeof(json) - offset, "{\"sensors\":[");
+        core::safe_snprintf_append(json, sizeof(json), offset, "{\"sensors\":[");
 
         uint8_t count = state_->get_sensor_count();
         for (uint8_t i = 0; i < count; i++) {
             auto* sensor = state_->get_sensor_by_id(i);
             if (!sensor) continue;
 
-            if (i > 0) offset += snprintf(json + offset, sizeof(json) - offset, ",");
+            if (i > 0) core::safe_snprintf_append(json, sizeof(json), offset, ",");
 
-            offset += snprintf(json + offset, sizeof(json) - offset,
+            core::safe_snprintf_append(json, sizeof(json), offset,
                 "{\"name\":\"%s\",\"value\":%.2f,\"unit\":\"%s\",\"quality\":%d}",
                 sensor->name, sensor->filtered_value, sensor->unit,
                 static_cast<int>(sensor->quality));
         }
 
-        offset += snprintf(json + offset, sizeof(json) - offset, "]}");
+        core::safe_snprintf_append(json, sizeof(json), offset, "]}");
         response.set_json(json);
     }
 
@@ -217,21 +217,21 @@ private:
         char json[2048];
         int offset = 0;
 
-        offset += snprintf(json + offset, sizeof(json) - offset, "{\"relays\":[");
+        core::safe_snprintf_append(json, sizeof(json), offset, "{\"relays\":[");
 
         uint8_t count = state_->get_relay_count();
         for (uint8_t i = 0; i < count; i++) {
             auto* relay = state_->get_relay_by_id(i);
             if (!relay) continue;
 
-            if (i > 0) offset += snprintf(json + offset, sizeof(json) - offset, ",");
+            if (i > 0) core::safe_snprintf_append(json, sizeof(json), offset, ",");
 
-            offset += snprintf(json + offset, sizeof(json) - offset,
+            core::safe_snprintf_append(json, sizeof(json), offset,
                 "{\"name\":\"%s\",\"state\":%s,\"duty_cycle\":%.1f}",
                 relay->name, relay->state ? "true" : "false", relay->duty_cycle);
         }
 
-        offset += snprintf(json + offset, sizeof(json) - offset, "]}");
+        core::safe_snprintf_append(json, sizeof(json), offset, "]}");
         response.set_json(json);
     }
 
@@ -271,16 +271,16 @@ private:
         char json[4096];
         int offset = 0;
 
-        offset += snprintf(json + offset, sizeof(json) - offset, "{\"fermenters\":[");
+        core::safe_snprintf_append(json, sizeof(json), offset, "{\"fermenters\":[");
 
         uint8_t count = state_->get_fermenter_count();
         for (uint8_t i = 0; i < count; i++) {
             auto* ferm = state_->get_fermenter(i + 1);
             if (!ferm) continue;
 
-            if (i > 0) offset += snprintf(json + offset, sizeof(json) - offset, ",");
+            if (i > 0) core::safe_snprintf_append(json, sizeof(json), offset, ",");
 
-            offset += snprintf(json + offset, sizeof(json) - offset,
+            core::safe_snprintf_append(json, sizeof(json), offset,
                 "{\"id\":%d,\"name\":\"%s\",\"current_temp\":%.1f,\"target_temp\":%.1f,"
                 "\"current_pressure\":%.2f,\"target_pressure\":%.2f,\"mode\":%d,"
                 "\"plan_active\":%s,\"current_step\":%d,\"hours_remaining\":%.1f}",
@@ -291,7 +291,7 @@ private:
                 ferm->current_step, ferm->hours_remaining);
         }
 
-        offset += snprintf(json + offset, sizeof(json) - offset, "]}");
+        core::safe_snprintf_append(json, sizeof(json), offset, "]}");
         response.set_json(json);
     }
 
@@ -327,21 +327,21 @@ private:
         char json[2048];
         int offset = 0;
 
-        offset += snprintf(json + offset, sizeof(json) - offset,
+        core::safe_snprintf_append(json, sizeof(json), offset,
             "{\"active\":true,\"start_time\":%lu,\"current_step\":%d,\"steps\":[",
             (unsigned long)plan->start_time, plan->current_step);
 
         for (uint8_t i = 0; i < plan->step_count; i++) {
-            if (i > 0) offset += snprintf(json + offset, sizeof(json) - offset, ",");
+            if (i > 0) core::safe_snprintf_append(json, sizeof(json), offset, ",");
 
-            offset += snprintf(json + offset, sizeof(json) - offset,
+            core::safe_snprintf_append(json, sizeof(json), offset,
                 "{\"name\":\"%s\",\"duration_hours\":%lu,\"target_temp\":%.1f,"
                 "\"target_pressure\":%.2f}",
                 plan->steps[i].name, (unsigned long)plan->steps[i].duration_hours,
                 plan->steps[i].target_temp, plan->steps[i].target_pressure);
         }
 
-        offset += snprintf(json + offset, sizeof(json) - offset, "]}");
+        core::safe_snprintf_append(json, sizeof(json), offset, "]}");
         response.set_json(json);
     }
 
