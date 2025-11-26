@@ -80,6 +80,9 @@ public:
         bool valid;
     };
 
+    // Callback for when WiFi gets an IP address
+    using WifiIpCallback = void (*)(void* user_data);
+
     WifiProvisioning(hal::ITimeInterface* time_hal)
         : time_hal_(time_hal)
         , state_(State::IDLE)
@@ -532,6 +535,15 @@ public:
 #endif
     }
 
+    /**
+     * Set callback for when WiFi gets an IP address
+     * Used for network failover evaluation when WiFi connects after Ethernet
+     */
+    void set_ip_callback(WifiIpCallback callback, void* user_data) {
+        ip_callback_ = callback;
+        ip_callback_user_data_ = user_data;
+    }
+
 private:
 #ifdef ESP32_BUILD
     bool connect_sta(const char* ssid, const char* password) {
@@ -980,6 +992,11 @@ private:
             self->state_ = State::CONNECTED;
             xEventGroupSetBits(self->wifi_event_group_, WIFI_CONNECTED_BIT);
             ESP_LOGI("Prov", "Got IP: %s", self->ip_address_);
+
+            // Notify callback (for network failover evaluation)
+            if (self->ip_callback_) {
+                self->ip_callback_(self->ip_callback_user_data_);
+            }
         }
     }
 
@@ -1044,6 +1061,10 @@ private:
     bool auto_connect_ = true;  // Auto-connect on boot (persisted to NVS)
     bool standby_mode_ = false; // WiFi disabled due to Ethernet on same network
     uint8_t ap_client_count_ = 0;
+
+    // IP callback for network failover (platform independent)
+    WifiIpCallback ip_callback_ = nullptr;
+    void* ip_callback_user_data_ = nullptr;
 
 public:
     /**

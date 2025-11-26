@@ -245,6 +245,16 @@ static void on_ethernet_ip_obtained(const hal::esp32::NetworkInfo& info, void* u
     evaluate_network_failover();
 }
 
+/**
+ * Callback for WiFi IP obtained
+ * Triggers failover evaluation when WiFi connects (e.g., after adding credentials)
+ */
+static void on_wifi_ip_obtained(void* user_data) {
+    (void)user_data;
+    ESP_LOGI("NetMgr", "WiFi got IP - evaluating failover");
+    evaluate_network_failover();
+}
+
 #endif // ETHERNET_ENABLED && WIFI_NTP_ENABLED && ESP32_BUILD
 
 /**
@@ -354,6 +364,11 @@ bool system_init(bool config_loaded = false) {
         return false;
     }
     g_wifi_prov->init();
+
+#ifdef ETHERNET_ENABLED
+    // Register callback for WiFi IP obtained (triggers failover evaluation)
+    g_wifi_prov->set_ip_callback(on_wifi_ip_obtained, nullptr);
+#endif
 
     // Start WiFi (tries stored credentials, then provisioning)
     if (g_wifi_prov->start()) {
