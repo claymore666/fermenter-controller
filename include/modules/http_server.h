@@ -23,6 +23,10 @@
 #include "modules/can_module.h"
 #endif
 
+#ifdef ETHERNET_ENABLED
+#include "hal/esp32/esp32_ethernet.h"
+#endif
+
 #ifdef ESP32_BUILD
 #include "esp_https_server.h"
 #include "esp_log.h"
@@ -98,6 +102,9 @@ public:
 #ifdef WIFI_NTP_ENABLED
         , wifi_prov_(nullptr)
 #endif
+#ifdef ETHERNET_ENABLED
+        , ethernet_(nullptr)
+#endif
 #ifdef CAN_ENABLED
         , can_module_(nullptr)
 #endif
@@ -113,6 +120,10 @@ public:
 
 #ifdef WIFI_NTP_ENABLED
     void set_wifi_provisioning(WifiProvisioning* wifi) { wifi_prov_ = wifi; }
+#endif
+
+#ifdef ETHERNET_ENABLED
+    void set_ethernet(void* eth) { ethernet_ = eth; }
 #endif
 
 #ifdef CAN_ENABLED
@@ -611,6 +622,9 @@ private:
     hal::IGPIOInterface* gpio_;
 #ifdef WIFI_NTP_ENABLED
     WifiProvisioning* wifi_prov_;
+#endif
+#ifdef ETHERNET_ENABLED
+    void* ethernet_;
 #endif
 #ifdef CAN_ENABLED
     void* can_module_;
@@ -2489,6 +2503,40 @@ public:
             "false"
 #endif
         );
+
+        // Network interfaces
+        offset += snprintf(response + offset, response_size - offset, "\"network\":{");
+#ifdef WIFI_NTP_ENABLED
+        if (wifi_prov_) {
+            offset += snprintf(response + offset, response_size - offset,
+                "\"wifi\":{\"connected\":%s,\"ip\":\"%s\",\"netmask\":\"%s\",\"gateway\":\"%s\",\"ssid\":\"%s\",\"rssi\":%d}",
+                wifi_prov_->is_connected() ? "true" : "false",
+                wifi_prov_->get_ip_address() ? wifi_prov_->get_ip_address() : "",
+                wifi_prov_->get_netmask() ? wifi_prov_->get_netmask() : "",
+                wifi_prov_->get_gateway() ? wifi_prov_->get_gateway() : "",
+                wifi_prov_->get_ssid() ? wifi_prov_->get_ssid() : "",
+                wifi_prov_->get_rssi());
+        } else {
+            offset += snprintf(response + offset, response_size - offset, "\"wifi\":{\"connected\":false}");
+        }
+#else
+        offset += snprintf(response + offset, response_size - offset, "\"wifi\":{\"enabled\":false}");
+#endif
+#ifdef ETHERNET_ENABLED
+        if (ethernet_) {
+            auto* eth = static_cast<hal::esp32::ESP32Ethernet*>(ethernet_);
+            auto& info = eth->get_info();
+            offset += snprintf(response + offset, response_size - offset,
+                ",\"ethernet\":{\"connected\":%s,\"ip\":\"%s\",\"netmask\":\"%s\",\"gateway\":\"%s\",\"speed\":%d}",
+                eth->is_connected() ? "true" : "false",
+                info.ip_address, info.netmask, info.gateway, info.link_speed_mbps);
+        } else {
+            offset += snprintf(response + offset, response_size - offset, ",\"ethernet\":{\"connected\":false}");
+        }
+#else
+        offset += snprintf(response + offset, response_size - offset, ",\"ethernet\":{\"enabled\":false}");
+#endif
+        offset += snprintf(response + offset, response_size - offset, "},");
 
         // CAN status
 #ifdef CAN_ENABLED

@@ -95,6 +95,7 @@ cd modbus_simulator && python simulator.py
 - NVS storage for credentials and configuration
 - Status LED (WS2812 RGB on GPIO38)
 - CAN bus communication (TWAI at 500kbps)
+- Ethernet connectivity (W5500 SPI on GPIO12-16, GPIO39)
 
 ### Not Implemented
 - MQTT client
@@ -169,6 +170,7 @@ Typical CPU usage when idle: ~0.2%
 |------|-------------|
 | `DEBUG_CONSOLE_ENABLED` | USB serial debug console |
 | `WIFI_NTP_ENABLED` | WiFi + NTP + Provisioning |
+| `ETHERNET_ENABLED` | Ethernet connectivity (W5500 SPI) |
 | `CAN_ENABLED` | CAN bus communication (TWAI) |
 | `HTTP_ENABLED` | HTTP server + REST API |
 | `CERT_GENERATION_ENABLED` | Per-device SSL certificate generation |

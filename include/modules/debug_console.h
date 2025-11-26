@@ -25,6 +25,9 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include <time.h>
+#ifdef ETHERNET_ENABLED
+#include "hal/esp32/esp32_ethernet.h"
+#endif
 #endif
 
 // Version info
@@ -53,7 +56,8 @@ public:
                  hal::IStorageInterface* storage = nullptr,
                  hal::IGPIOInterface* gpio = nullptr,
                  void* can_module = nullptr,
-                 StatusLed* status_led = nullptr)
+                 StatusLed* status_led = nullptr,
+                 void* ethernet = nullptr)
         : serial_(serial)
         , time_(time)
         , state_(state)
@@ -67,6 +71,7 @@ public:
         , gpio_(gpio)
         , can_module_(can_module)
         , status_led_(status_led)
+        , ethernet_(ethernet)
         , cmd_index_(0)
         , echo_enabled_(true)
         , log_events_(false)
@@ -146,6 +151,7 @@ private:
     hal::IGPIOInterface* gpio_;
     void* can_module_;  // CANModule* when CAN_ENABLED
     StatusLed* status_led_;
+    void* ethernet_;    // ESP32Ethernet* when ETHERNET_ENABLED
 
     char cmd_buffer_[MAX_CMD_LENGTH];
     size_t cmd_index_;
@@ -259,6 +265,8 @@ private:
             cmd_modules();
         } else if (strcmp(args[0], "wifi") == 0) {
             cmd_wifi(argc, args);
+        } else if (strcmp(args[0], "eth") == 0) {
+            cmd_eth(argc, args);
         } else if (strcmp(args[0], "can") == 0) {
             cmd_can(argc, args);
         } else if (strcmp(args[0], "factory") == 0) {
@@ -320,6 +328,8 @@ private:
         serial_->println("  wifi disconnect     - Disconnect (persistent)");
         serial_->println("  wifi set <ssid> <pass> - Set credentials");
         serial_->println("  wifi clear          - Clear credentials & provision");
+        serial_->println("");
+        serial_->println("  eth                 - Ethernet status");
         serial_->println("");
         serial_->println("  can                 - CAN bus status");
         serial_->println("  can send <id> <data...> - Send CAN message");
@@ -914,6 +924,38 @@ private:
         } else {
             serial_->println("Usage: wifi [connect|disconnect|set <ssid> <pass>|clear]");
         }
+    }
+
+    void cmd_eth(int argc, char** args) {
+        (void)argc;
+        (void)args;
+#if defined(ESP32_BUILD) && defined(ETHERNET_ENABLED)
+        if (!ethernet_) {
+            serial_->println("Ethernet not available");
+            return;
+        }
+
+        auto* eth = static_cast<hal::esp32::ESP32Ethernet*>(ethernet_);
+
+        serial_->println("Ethernet Status:");
+        printf("  Connected: %s\r\n", eth->is_connected() ? "Yes" : "No");
+
+        if (eth->is_connected()) {
+            printf("  IP: %s\r\n", eth->get_ip_address());
+            printf("  Netmask: %s\r\n", eth->get_netmask());
+            printf("  Gateway: %s\r\n", eth->get_gateway());
+            printf("  Speed: %d Mbps\r\n", eth->get_link_speed());
+
+            auto& info = eth->get_info();
+            printf("  MAC: %02X:%02X:%02X:%02X:%02X:%02X\r\n",
+                   info.mac[0], info.mac[1], info.mac[2],
+                   info.mac[3], info.mac[4], info.mac[5]);
+        } else {
+            serial_->println("  Waiting for link...");
+        }
+#else
+        serial_->println("Ethernet not enabled in this build");
+#endif
     }
 
     void cmd_can(int argc, char** args) {

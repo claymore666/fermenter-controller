@@ -198,6 +198,23 @@ CAN Bus Status:
 Sent CAN ID 0x123 [3 bytes]
 ```
 
+### Ethernet
+
+| Command | Description |
+|---------|-------------|
+| `eth` | Ethernet status (IP, netmask, gateway, link speed) |
+
+Example:
+```
+> eth
+Ethernet Status:
+  Connected: Yes
+  IP: 192.168.0.140
+  Netmask: 255.255.255.0
+  Gateway: 192.168.0.1
+  Speed: 100 Mbps
+```
+
 ### WiFi
 
 | Command | Description |

@@ -35,6 +35,12 @@
 #endif
 #endif
 
+#ifdef ETHERNET_ENABLED
+#ifdef ESP32_BUILD
+#include "hal/esp32/esp32_ethernet.h"
+#endif
+#endif
+
 #ifdef HTTP_ENABLED
 #include "modules/http_server.h"
 #endif
@@ -125,6 +131,12 @@ static hal::ICANInterface* g_can = &g_esp32_can;
 static CANModule* g_can_module = nullptr;
 #endif
 
+#ifdef ETHERNET_ENABLED
+#ifdef ESP32_BUILD
+static hal::esp32::ESP32Ethernet* g_ethernet = nullptr;
+#endif
+#endif
+
 #ifdef HTTP_ENABLED
 static HttpServer* g_http_server = nullptr;
 #endif
@@ -143,6 +155,11 @@ void cleanup_modules() {
 #endif
 #ifdef CAN_ENABLED
     if (g_can_module) { delete g_can_module; g_can_module = nullptr; }
+#endif
+#ifdef ETHERNET_ENABLED
+#ifdef ESP32_BUILD
+    if (g_ethernet) { delete g_ethernet; g_ethernet = nullptr; }
+#endif
 #endif
 #ifdef WIFI_NTP_ENABLED
     if (g_mdns) { g_mdns->stop(); delete g_mdns; g_mdns = nullptr; }
@@ -311,6 +328,25 @@ bool system_init(bool config_loaded = false) {
     }
 #endif
 
+#ifdef ETHERNET_ENABLED
+#ifdef ESP32_BUILD
+    // Initialize Ethernet (W5500 SPI)
+    g_ethernet = new hal::esp32::ESP32Ethernet();
+    if (g_ethernet && g_ethernet->init()) {
+        if (g_ethernet->start()) {
+            // Wait briefly for link
+            if (g_ethernet->wait_for_connection(5000)) {
+                printf("Ethernet connected: %s\n", g_ethernet->get_ip_address());
+            } else {
+                printf("Ethernet: link up, waiting for DHCP...\n");
+            }
+        }
+    } else {
+        printf("WARNING: Ethernet init failed\n");
+    }
+#endif
+#endif
+
 #ifdef HTTP_ENABLED
     // Initialize HTTP server (requires WiFi)
 #ifdef WIFI_NTP_ENABLED
@@ -325,6 +361,9 @@ bool system_init(bool config_loaded = false) {
         } else {
 #ifdef WIFI_NTP_ENABLED
             g_http_server->set_wifi_provisioning(g_wifi_prov);
+#endif
+#ifdef ETHERNET_ENABLED
+            g_http_server->set_ethernet(g_ethernet);
 #endif
             // HttpServer loads provisioning state from NVS in constructor
 
@@ -364,6 +403,8 @@ bool system_init(bool config_loaded = false) {
         &g_config, g_safety, g_plan_manager, g_modbus
 #ifdef WIFI_NTP_ENABLED
         , g_wifi_prov, &g_storage, &g_gpio
+#else
+        , nullptr, nullptr, nullptr
 #endif
 #ifdef CAN_ENABLED
         , g_can_module
@@ -372,6 +413,13 @@ bool system_init(bool config_loaded = false) {
 #endif
 #ifdef WIFI_NTP_ENABLED
         , g_status_led
+#else
+        , nullptr
+#endif
+#ifdef ETHERNET_ENABLED
+        , g_ethernet
+#else
+        , nullptr
 #endif
     );
     g_debug_console->initialize(115200);

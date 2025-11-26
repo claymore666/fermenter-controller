@@ -226,17 +226,46 @@
                             </div>
                         </div>
 
-                        <h5>Connectivity</h5>
-                        <div class="row">
-                            <div class="col-md-3">
-                                <div class="card mb-3">
-                                    <div class="card-body text-center">
-                                        <h6 class="text-muted">WiFi</h6>
-                                        <div id="status-wifi" class="sensor-value">--</div>
+                        <h5>Network Interfaces</h5>
+                        <div class="row mb-3">
+                            <div class="col-md-6">
+                                <div class="card">
+                                    <div class="card-header">
+                                        <strong>WiFi</strong>
+                                        <span id="wifi-status-badge" class="badge bg-secondary float-end">Disconnected</span>
+                                    </div>
+                                    <div class="card-body">
+                                        <table class="table table-sm table-borderless mb-0">
+                                            <tr><td class="text-muted" style="width: 80px;">SSID</td><td id="net-wifi-ssid">--</td></tr>
+                                            <tr><td class="text-muted">IP</td><td id="net-wifi-ip">--</td></tr>
+                                            <tr><td class="text-muted">Netmask</td><td id="net-wifi-netmask">--</td></tr>
+                                            <tr><td class="text-muted">Gateway</td><td id="net-wifi-gateway">--</td></tr>
+                                            <tr><td class="text-muted">RSSI</td><td id="net-wifi-rssi">--</td></tr>
+                                        </table>
                                     </div>
                                 </div>
                             </div>
-                            <div class="col-md-3">
+                            <div class="col-md-6" id="ethernet-card-col">
+                                <div class="card">
+                                    <div class="card-header">
+                                        <strong>Ethernet</strong>
+                                        <span id="eth-status-badge" class="badge bg-secondary float-end">Disconnected</span>
+                                    </div>
+                                    <div class="card-body">
+                                        <table class="table table-sm table-borderless mb-0">
+                                            <tr><td class="text-muted" style="width: 80px;">IP</td><td id="net-eth-ip">--</td></tr>
+                                            <tr><td class="text-muted">Netmask</td><td id="net-eth-netmask">--</td></tr>
+                                            <tr><td class="text-muted">Gateway</td><td id="net-eth-gateway">--</td></tr>
+                                            <tr><td class="text-muted">Speed</td><td id="net-eth-speed">--</td></tr>
+                                        </table>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <h5>Time</h5>
+                        <div class="row">
+                            <div class="col-md-4">
                                 <div class="card mb-3">
                                     <div class="card-body text-center">
                                         <h6 class="text-muted">NTP</h6>
@@ -244,7 +273,7 @@
                                     </div>
                                 </div>
                             </div>
-                            <div class="col-md-3">
+                            <div class="col-md-4">
                                 <div class="card mb-3">
                                     <div class="card-body text-center">
                                         <h6 class="text-muted">System Time</h6>
@@ -252,7 +281,7 @@
                                     </div>
                                 </div>
                             </div>
-                            <div class="col-md-3">
+                            <div class="col-md-4">
                                 <div class="card mb-3">
                                     <div class="card-body text-center">
                                         <h6 class="text-muted">Timezone</h6>
@@ -839,6 +868,7 @@
                 const data = await api('/dashboard');
 
                 updateStatus(data.status, data.modbus, data.can);
+                updateNetwork(data.network || {});
                 updateSensors(data.sensors || []);
                 updateRelays(data.relays || []);
                 updateAlarms(data.alarms || []);
@@ -923,10 +953,7 @@
             document.getElementById('status-sensors').textContent = data.sensor_count;
             document.getElementById('status-fermenters').textContent = data.fermenter_count;
 
-            // Connectivity
-            document.getElementById('status-wifi').textContent = data.wifi_rssi + ' dBm';
-            document.getElementById('status-wifi').className = 'sensor-value ' +
-                (data.wifi_rssi > -70 ? 'status-good' : data.wifi_rssi > -85 ? 'status-warning' : 'status-bad');
+            // NTP status
             document.getElementById('status-ntp').textContent = data.ntp_synced ? 'Synced' : 'Not Synced';
             document.getElementById('status-ntp').className = 'sensor-value ' +
                 (data.ntp_synced ? 'status-good' : 'status-warning');
@@ -1131,6 +1158,60 @@
             document.getElementById('modbus-transactions').textContent = data.transactions;
             document.getElementById('modbus-errors').textContent = data.errors;
             document.getElementById('modbus-error-rate').textContent = data.error_rate.toFixed(2) + '%';
+        }
+
+        function updateNetwork(network) {
+            // WiFi interface
+            if (network.wifi) {
+                const wifi = network.wifi;
+                const wifiBadge = document.getElementById('wifi-status-badge');
+                if (wifi.connected) {
+                    wifiBadge.textContent = 'Connected';
+                    wifiBadge.className = 'badge bg-success float-end';
+                    document.getElementById('net-wifi-ssid').textContent = escapeHtml(wifi.ssid || '--');
+                    document.getElementById('net-wifi-ip').textContent = escapeHtml(wifi.ip || '--');
+                    document.getElementById('net-wifi-netmask').textContent = escapeHtml(wifi.netmask || '--');
+                    document.getElementById('net-wifi-gateway').textContent = escapeHtml(wifi.gateway || '--');
+                    const rssiText = wifi.rssi + ' dBm';
+                    const rssiEl = document.getElementById('net-wifi-rssi');
+                    rssiEl.textContent = rssiText;
+                    rssiEl.className = wifi.rssi > -70 ? 'status-good' : wifi.rssi > -85 ? 'status-warning' : 'status-bad';
+                } else {
+                    wifiBadge.textContent = 'Disconnected';
+                    wifiBadge.className = 'badge bg-secondary float-end';
+                    document.getElementById('net-wifi-ssid').textContent = '--';
+                    document.getElementById('net-wifi-ip').textContent = '--';
+                    document.getElementById('net-wifi-netmask').textContent = '--';
+                    document.getElementById('net-wifi-gateway').textContent = '--';
+                    document.getElementById('net-wifi-rssi').textContent = '--';
+                }
+            }
+
+            // Ethernet interface
+            const ethCol = document.getElementById('ethernet-card-col');
+            if (network.ethernet) {
+                const eth = network.ethernet;
+                ethCol.style.display = 'block';
+                const ethBadge = document.getElementById('eth-status-badge');
+                if (eth.connected) {
+                    ethBadge.textContent = 'Connected';
+                    ethBadge.className = 'badge bg-success float-end';
+                    document.getElementById('net-eth-ip').textContent = escapeHtml(eth.ip || '--');
+                    document.getElementById('net-eth-netmask').textContent = escapeHtml(eth.netmask || '--');
+                    document.getElementById('net-eth-gateway').textContent = escapeHtml(eth.gateway || '--');
+                    document.getElementById('net-eth-speed').textContent = eth.speed ? eth.speed + ' Mbps' : '--';
+                } else {
+                    ethBadge.textContent = 'Disconnected';
+                    ethBadge.className = 'badge bg-secondary float-end';
+                    document.getElementById('net-eth-ip').textContent = '--';
+                    document.getElementById('net-eth-netmask').textContent = '--';
+                    document.getElementById('net-eth-gateway').textContent = '--';
+                    document.getElementById('net-eth-speed').textContent = '--';
+                }
+            } else {
+                // Hide ethernet card if not available
+                ethCol.style.display = 'none';
+            }
         }
 
         function updateGPIO(inputs, outputs) {

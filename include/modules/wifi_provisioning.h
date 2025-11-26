@@ -308,6 +308,22 @@ public:
     }
 
     /**
+     * Get network mask
+     */
+    const char* get_netmask() const {
+        if (state_ != State::CONNECTED) return nullptr;
+        return netmask_;
+    }
+
+    /**
+     * Get gateway address
+     */
+    const char* get_gateway() const {
+        if (state_ != State::CONNECTED) return nullptr;
+        return gateway_;
+    }
+
+    /**
      * Get WiFi RSSI (signal strength)
      */
     int get_rssi() const {
@@ -887,6 +903,10 @@ private:
             ip_event_got_ip_t* event = (ip_event_got_ip_t*)event_data;
             snprintf(self->ip_address_, sizeof(self->ip_address_),
                      IPSTR, IP2STR(&event->ip_info.ip));
+            snprintf(self->netmask_, sizeof(self->netmask_),
+                     IPSTR, IP2STR(&event->ip_info.netmask));
+            snprintf(self->gateway_, sizeof(self->gateway_),
+                     IPSTR, IP2STR(&event->ip_info.gw));
             self->state_ = State::CONNECTED;
             xEventGroupSetBits(self->wifi_event_group_, WIFI_CONNECTED_BIT);
             ESP_LOGI("Prov", "Got IP: %s", self->ip_address_);
@@ -948,6 +968,8 @@ private:
     Credentials stored_creds_;
     Credentials pending_creds_;
     char ip_address_[16];
+    char netmask_[16];
+    char gateway_[16];
     bool initialized_;
     bool auto_connect_ = true;  // Auto-connect on boot (persisted to NVS)
     uint8_t ap_client_count_ = 0;

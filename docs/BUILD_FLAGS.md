@@ -7,6 +7,7 @@ Compile-time flags to enable/disable features and reduce firmware size.
 | Flag | Description | Dependencies |
 |------|-------------|--------------|
 | `WIFI_NTP_ENABLED` | WiFi connectivity + NTP time sync + Provisioning | - |
+| `ETHERNET_ENABLED` | Ethernet connectivity (W5500 SPI) | - |
 | `HTTP_ENABLED` | HTTP server + REST API | `WIFI_NTP_ENABLED` |
 | `CERT_GENERATION_ENABLED` | Per-device SSL certificate generation | `HTTP_ENABLED` |
 | `MQTT_ENABLED` | MQTT client for telemetry/control | `WIFI_NTP_ENABLED` |
@@ -94,6 +95,12 @@ CAN_ENABLED
 ├── TWAI driver (CAN 2.0B)
 ├── CAN module for send/receive
 └── 125k/250k/500k/1Mbps bitrates
+
+ETHERNET_ENABLED
+├── W5500 SPI driver
+├── ESP-NETIF integration
+├── DHCP client
+└── GPIO12-16, GPIO39
 ```
 
 ## Conditional Compilation
@@ -129,6 +136,11 @@ CAN_ENABLED
 #include "hal/esp32/esp32_can.h"
 // CAN bus code
 #endif
+
+#ifdef ETHERNET_ENABLED
+#include "hal/esp32/esp32_ethernet.h"
+// Ethernet code (W5500 SPI)
+#endif
 ```
 
 ### REST API
@@ -141,6 +153,7 @@ The REST API module is **only compiled when `HTTP_ENABLED` is defined**. This re
 |------|--------|
 | `DEBUG_CONSOLE_ENABLED` | Implemented |
 | `WIFI_NTP_ENABLED` | Implemented |
+| `ETHERNET_ENABLED` | Implemented (W5500 SPI, DHCP) |
 | `CAN_ENABLED` | Implemented |
 | `HTTP_ENABLED` | Implemented (REST API + admin web interface) |
 | `MQTT_ENABLED` | Not implemented |
