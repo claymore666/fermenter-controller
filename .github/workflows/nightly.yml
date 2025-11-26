@@ -38,6 +38,9 @@ jobs:
           python -m pip install --upgrade pip
           pip install platformio
 
+      - name: Setup mDNS component
+        run: ./scripts/setup_mdns.sh
+
       - name: Build ESP32 WiFi firmware
         run: pio run -e esp32_wifi
 
