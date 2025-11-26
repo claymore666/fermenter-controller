@@ -277,6 +277,30 @@ void test_uptime_command() {
     TEST_ASSERT_TRUE(output.find("Uptime") != std::string::npos);
 }
 
+void test_cpu_command() {
+    std::string output = send_command("cpu");
+
+    // In simulator, should show CPU usage from state manager
+    TEST_ASSERT_TRUE(output.find("CPU") != std::string::npos);
+    TEST_ASSERT_TRUE(output.find("Usage") != std::string::npos || output.find("Frequency") != std::string::npos);
+}
+
+void test_ssl_command_help() {
+    std::string output = send_command("ssl");
+
+    // Should show SSL command help
+    TEST_ASSERT_TRUE(output.find("SSL") != std::string::npos || output.find("ssl") != std::string::npos);
+    TEST_ASSERT_TRUE(output.find("status") != std::string::npos);
+    TEST_ASSERT_TRUE(output.find("debug") != std::string::npos);
+}
+
+void test_ssl_debug_command() {
+    std::string output = send_command("ssl debug");
+
+    // In simulator, returns "Not available in simulator"
+    TEST_ASSERT_TRUE(output.find("simulator") != std::string::npos || output.find("TLS") != std::string::npos);
+}
+
 void test_unknown_command() {
     std::string output = send_command("invalidcmd");
 
@@ -315,6 +339,11 @@ int main(int argc, char **argv) {
     RUN_TEST(test_status_command);
     RUN_TEST(test_heap_command);
     RUN_TEST(test_uptime_command);
+    RUN_TEST(test_cpu_command);
+
+    // SSL/TLS
+    RUN_TEST(test_ssl_command_help);
+    RUN_TEST(test_ssl_debug_command);
 
     // Sensors
     RUN_TEST(test_sensors_command);
