@@ -12,6 +12,7 @@
 
 #include <cstring>
 #include <cstdint>
+#include <cstdio>
 
 #ifdef ESP32_BUILD
 #include "mbedtls/pk.h"

@@ -11,6 +11,8 @@
  * includes the hostname in the Subject Alternative Name (SAN).
  */
 
+#include <cstdio>
+
 #ifdef ESP32_BUILD
 
 #include "mdns.h"
