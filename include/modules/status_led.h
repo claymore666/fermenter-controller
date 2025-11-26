@@ -192,8 +192,9 @@ public:
                 break;
 
             case Pattern::BREATHE:
-                // Slower, smoother pulse
-                pulse_value_ += pulse_direction_ * 3;
+                // Breathing pulse: ~2 seconds on, ~2 seconds off (4 second full cycle)
+                // At 50ms update rate: 245 steps / 6 increment = ~41 steps = ~2 seconds per half
+                pulse_value_ += pulse_direction_ * 6;
                 if (pulse_value_ >= 255) {
                     pulse_value_ = 255;
                     pulse_direction_ = -1;
