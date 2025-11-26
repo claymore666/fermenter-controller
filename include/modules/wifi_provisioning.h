@@ -507,6 +507,31 @@ public:
         }
     }
 
+    /**
+     * Stop captive portal (frees port 80 for main HTTP server)
+     * Call this when Ethernet is available so main HTTP server can start
+     * Note: SmartConfig and AP mode continue running for WiFi provisioning
+     */
+    void stop_captive_portal() {
+#ifdef ESP32_BUILD
+        if (captive_portal_server_) {
+            httpd_stop(captive_portal_server_);
+            captive_portal_server_ = nullptr;
+            ESP_LOGI("Prov", "Captive portal stopped (port 80 freed)");
+        }
+        // Stop DNS server - no longer needed without captive portal
+        if (dns_task_handle_) {
+            vTaskDelete(dns_task_handle_);
+            dns_task_handle_ = nullptr;
+        }
+        if (dns_socket_ >= 0) {
+            close(dns_socket_);
+            dns_socket_ = -1;
+            ESP_LOGI("DNS", "DNS server stopped");
+        }
+#endif
+    }
+
 private:
 #ifdef ESP32_BUILD
     bool connect_sta(const char* ssid, const char* password) {

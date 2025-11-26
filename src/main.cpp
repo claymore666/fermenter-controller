@@ -438,6 +438,13 @@ bool system_init(bool config_loaded = false) {
 #ifdef ETHERNET_ENABLED
     if (!network_available && g_ethernet && g_ethernet->is_connected()) {
         network_available = true;
+        // If WiFi is in provisioning mode, stop captive portal to free port 80
+#ifdef WIFI_NTP_ENABLED
+        if (g_wifi_prov && g_wifi_prov->is_provisioning()) {
+            ESP_LOGI("Main", "Ethernet available - stopping captive portal for main HTTP server");
+            g_wifi_prov->stop_captive_portal();
+        }
+#endif
     }
 #endif
     if (network_available) {
