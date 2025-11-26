@@ -544,7 +544,7 @@
         // Configuration
         const API_BASE = window.location.origin + '/api';
         let authToken = localStorage.getItem('authToken');
-        let refreshInterval = null;
+        let refreshActive = false;  // Controls adaptive refresh loop
         let cpuGraphInterval = null;
         let networkGraphInterval = null;
 
@@ -669,7 +669,7 @@
             document.getElementById('setup').style.display = 'block';
             document.getElementById('login').style.display = 'none';
             document.getElementById('app').style.display = 'none';
-            if (refreshInterval) clearInterval(refreshInterval);
+            refreshActive = false;  // Stop adaptive refresh loop
             if (cpuGraphInterval) clearInterval(cpuGraphInterval);
             if (networkGraphInterval) clearInterval(networkGraphInterval);
         }
@@ -678,7 +678,7 @@
             document.getElementById('setup').style.display = 'none';
             document.getElementById('login').style.display = 'block';
             document.getElementById('app').style.display = 'none';
-            if (refreshInterval) clearInterval(refreshInterval);
+            refreshActive = false;  // Stop adaptive refresh loop
             if (cpuGraphInterval) clearInterval(cpuGraphInterval);
             if (networkGraphInterval) clearInterval(networkGraphInterval);
         }
@@ -736,6 +736,34 @@
 
         let initialLoadComplete = false;
 
+        // Connection state for exponential backoff
+        const connectionState = {
+            failureCount: 0,
+            baseInterval: 2000,      // Normal refresh rate (2s)
+            currentInterval: 2000,
+            maxInterval: 30000,      // Max 30 seconds between retries
+            backoffMultiplier: 2
+        };
+
+        function updateConnectionInterval() {
+            if (connectionState.failureCount === 0) {
+                connectionState.currentInterval = connectionState.baseInterval;
+            } else {
+                const backoff = connectionState.baseInterval *
+                    Math.pow(connectionState.backoffMultiplier, connectionState.failureCount);
+                connectionState.currentInterval = Math.min(backoff, connectionState.maxInterval);
+            }
+        }
+
+        function scheduleNextRefresh() {
+            if (!refreshActive) return;  // Stop if logged out
+            setTimeout(async () => {
+                if (!refreshActive) return;
+                await refreshAll();
+                scheduleNextRefresh();
+            }, connectionState.currentInterval);
+        }
+
         function showApp() {
             document.getElementById('setup').style.display = 'none';
             document.getElementById('login').style.display = 'none';
@@ -748,8 +776,10 @@
             refreshAll();
             refreshCpuHistory();
             refreshNetworkHistory();
-            refreshInterval = setInterval(refreshAll, 2000);
-            cpuGraphInterval = setInterval(refreshCpuHistory, 15000);  // Match sample rate
+            // Start adaptive refresh loop
+            refreshActive = true;
+            scheduleNextRefresh();
+            cpuGraphInterval = setInterval(refreshCpuHistory, 15000);
             networkGraphInterval = setInterval(refreshNetworkHistory, 15000);
         }
 
@@ -800,6 +830,10 @@
                 updateConfig(config);
                 updateModules(modules?.modules || {});
 
+                // Success - reset backoff
+                connectionState.failureCount = 0;
+                updateConnectionInterval();
+
                 document.getElementById('connectionStatus').textContent = 'Connected';
                 document.getElementById('connectionStatus').className = 'nav-item badge bg-success me-2';
 
@@ -810,9 +844,19 @@
                     document.querySelectorAll('.panel').forEach(p => p.style.display = '');
                 }
             } catch (err) {
-                document.getElementById('connectionStatus').textContent = 'Error';
-                document.getElementById('connectionStatus').className = 'nav-item badge bg-danger me-2';
-                console.error('Refresh failed:', err);
+                // Failure - increase backoff
+                connectionState.failureCount++;
+                updateConnectionInterval();
+
+                const statusEl = document.getElementById('connectionStatus');
+                if (connectionState.currentInterval >= connectionState.maxInterval) {
+                    statusEl.textContent = 'Offline';
+                    statusEl.className = 'nav-item badge bg-danger me-2';
+                } else {
+                    statusEl.textContent = 'Reconnecting...';
+                    statusEl.className = 'nav-item badge bg-warning me-2';
+                }
+                console.error('Refresh failed (retry in ' + (connectionState.currentInterval/1000) + 's):', err);
             }
         }
 
