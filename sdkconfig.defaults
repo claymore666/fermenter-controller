@@ -3,6 +3,11 @@ CONFIG_ESPTOOLPY_FLASHSIZE_16MB=y
 CONFIG_PARTITION_TABLE_CUSTOM=y
 CONFIG_PARTITION_TABLE_CUSTOM_FILENAME="partitions.csv"
 
+# USB Serial/JTAG Console - use USB as primary console
+CONFIG_ESP_CONSOLE_USB_SERIAL_JTAG=y
+# Prevent light sleep when USB connected (USB doesn't work during/after light sleep)
+CONFIG_USJ_NO_AUTO_LS_ON_CONNECTION=y
+
 # WiFi SmartConfig
 CONFIG_ESP_SMARTCONFIG_ENABLE=y
 

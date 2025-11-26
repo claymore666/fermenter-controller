@@ -31,8 +31,9 @@ __pycache__/
 .DS_Store
 Thumbs.db
 
-# Logs
+# Logs and debug output
 *.log
+bootsequence.txt
 
 # Environment files with secrets
 .env
