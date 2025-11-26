@@ -141,8 +141,12 @@ Note: 16MB flash with dual 4MB OTA partitions (app0/app1) + 8MB SPIFFS.
 | Signature | RSASSA-PSS |
 | Certificate | RSA-2048, SHA-256, self-signed |
 | Validity | 10 years |
+| SSL Buffer Size | 4KB in/out (reduced from 16KB for concurrent sessions) |
+| Max Open Sockets | 7 (default) |
 
 Certificate is generated per-device on first boot (~9 seconds) and stored in NVS.
+
+**SSL Buffer Optimization**: The SSL buffers are reduced to 4KB (from default 16KB) to allow more concurrent TLS sessions with available memory. This saves ~12KB per connection, enabling the ESP32 to handle multiple browser connections during page loads without TLS allocation failures (`-0x7780`).
 
 ## Power Management
 

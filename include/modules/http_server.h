@@ -987,6 +987,7 @@ public:
         httpd_uri_t api_cpu_history = { .uri = "/api/cpu/history", .method = HTTP_GET, .handler = api_handler, .user_ctx = this };
         httpd_uri_t api_network_history = { .uri = "/api/network/history", .method = HTTP_GET, .handler = api_handler, .user_ctx = this };
         httpd_uri_t api_wifi_summary = { .uri = "/api/wifi/summary", .method = HTTP_GET, .handler = api_handler, .user_ctx = this };
+        httpd_uri_t api_dashboard = { .uri = "/api/dashboard", .method = HTTP_GET, .handler = api_handler, .user_ctx = this };
         httpd_uri_t api_reboot = { .uri = "/api/reboot", .method = HTTP_POST, .handler = api_handler, .user_ctx = this };
 
         // Wildcard handlers
@@ -1022,6 +1023,7 @@ public:
         httpd_register_uri_handler(server, &api_cpu_history);
         httpd_register_uri_handler(server, &api_network_history);
         httpd_register_uri_handler(server, &api_wifi_summary);
+        httpd_register_uri_handler(server, &api_dashboard);
         httpd_register_uri_handler(server, &api_reboot);
         httpd_register_uri_handler(server, &api_relay_set);
         httpd_register_uri_handler(server, &api_output_set);
@@ -1094,6 +1096,7 @@ public:
         httpd_uri_t api_cpu_history = { .uri = "/api/cpu/history", .method = HTTP_GET, .handler = api_handler, .user_ctx = this };
         httpd_uri_t api_network_history = { .uri = "/api/network/history", .method = HTTP_GET, .handler = api_handler, .user_ctx = this };
         httpd_uri_t api_wifi_summary = { .uri = "/api/wifi/summary", .method = HTTP_GET, .handler = api_handler, .user_ctx = this };
+        httpd_uri_t api_dashboard = { .uri = "/api/dashboard", .method = HTTP_GET, .handler = api_handler, .user_ctx = this };
         httpd_uri_t api_reboot = { .uri = "/api/reboot", .method = HTTP_POST, .handler = api_handler, .user_ctx = this };
 
         // Wildcard handlers for dynamic paths
@@ -1129,6 +1132,7 @@ public:
         httpd_register_uri_handler(server_, &api_cpu_history);
         httpd_register_uri_handler(server_, &api_network_history);
         httpd_register_uri_handler(server_, &api_wifi_summary);
+        httpd_register_uri_handler(server_, &api_dashboard);
         httpd_register_uri_handler(server_, &api_reboot);
         httpd_register_uri_handler(server_, &api_relay_set);
         httpd_register_uri_handler(server_, &api_output_set);
@@ -1705,6 +1709,9 @@ public:
         }
         else if (strcmp(path, "/api/wifi/summary") == 0) {
             return api_wifi_summary(response, response_size);
+        }
+        else if (strcmp(path, "/api/dashboard") == 0) {
+            return api_dashboard(response, response_size);
         }
 
         snprintf(response, response_size, "{\"error\":\"Not found\"}");
@@ -2312,6 +2319,196 @@ public:
     int api_reboot(char* response, size_t response_size) {
         snprintf(response, response_size, "{\"success\":true,\"message\":\"Rebooting...\"}");
         // Actual reboot should be triggered after response is sent
+        return 200;
+    }
+
+    // Dashboard API - returns all data in a single request
+    int api_dashboard(char* response, size_t response_size) {
+        auto& sys = state_->get_system_state();
+        int offset = 0;
+
+        // Start JSON
+        offset += snprintf(response + offset, response_size - offset, "{");
+
+        // Status section
+        uint32_t uptime_h = sys.uptime_seconds / 3600;
+        uint32_t uptime_m = (sys.uptime_seconds % 3600) / 60;
+        uint32_t uptime_s = sys.uptime_seconds % 60;
+
+        const char* build_date = __DATE__;
+        const char* months = "JanFebMarAprMayJunJulAugSepOctNovDec";
+        int month = 1;
+        for (int i = 0; i < 12; i++) {
+            if (strncmp(build_date, months + i * 3, 3) == 0) { month = i + 1; break; }
+        }
+        int day = atoi(build_date + 4);
+        int year = atoi(build_date + 7) % 100;
+        char build_num[8];
+        snprintf(build_num, sizeof(build_num), "%02d%02d%02d", year, month, day);
+
+        char time_str[32] = "N/A";
+        char timezone_str[16] = "UTC";
+        char hostname[32] = "fermenter";
+#ifdef ESP32_BUILD
+        if (sys.ntp_synced) {
+            time_t now; time(&now);
+            struct tm timeinfo; localtime_r(&now, &timeinfo);
+            strftime(time_str, sizeof(time_str), "%Y-%m-%d %H:%M:%S", &timeinfo);
+            strftime(timezone_str, sizeof(timezone_str), "%Z", &timeinfo);
+        }
+        uint8_t mac[6];
+        esp_wifi_get_mac(WIFI_IF_STA, mac);
+        snprintf(hostname, sizeof(hostname), "fermenter-%02X%02X%02X.local", mac[3], mac[4], mac[5]);
+#endif
+
+        offset += snprintf(response + offset, response_size - offset,
+            "\"status\":{\"version\":\"%s\",\"build\":\"%s\",\"built\":\"%s %s\","
+            "\"hostname\":\"%s\",\"uptime\":\"%luh %lum %lus\",\"uptime_seconds\":%lu,"
+            "\"free_heap\":%lu,\"cpu_usage\":%.1f,\"cpu_freq_mhz\":%lu,\"cpu_freq_max_mhz\":%lu,"
+            "\"wifi_rssi\":%d,\"ntp_synced\":%s,\"sensor_count\":%d,\"fermenter_count\":%d,"
+            "\"modbus_transactions\":%lu,\"modbus_errors\":%lu,"
+            "\"system_time\":\"%s\",\"timezone\":\"%s\",\"flash_used\":1015808,\"flash_total\":4194304},",
+            FIRMWARE_VERSION, build_num, __DATE__, __TIME__, hostname,
+            (unsigned long)uptime_h, (unsigned long)uptime_m, (unsigned long)uptime_s,
+            (unsigned long)sys.uptime_seconds, (unsigned long)sys.free_heap, sys.cpu_usage,
+            (unsigned long)sys.cpu_freq_mhz, (unsigned long)sys.cpu_freq_max_mhz,
+            sys.wifi_rssi, sys.ntp_synced ? "true" : "false",
+            state_->get_sensor_count(), state_->get_fermenter_count(),
+            (unsigned long)sys.modbus_transactions, (unsigned long)sys.modbus_errors,
+            time_str, timezone_str);
+
+        // Sensors section
+        offset += snprintf(response + offset, response_size - offset, "\"sensors\":[");
+        uint8_t sensor_count = state_->get_sensor_count();
+        for (uint8_t i = 0; i < sensor_count && offset < (int)response_size - 200; i++) {
+            auto* sensor = state_->get_sensor_by_id(i);
+            if (sensor) {
+                if (i > 0) offset += snprintf(response + offset, response_size - offset, ",");
+                offset += snprintf(response + offset, response_size - offset,
+                    "{\"name\":\"%s\",\"value\":%.3f,\"unit\":\"%s\",\"quality\":\"%s\"}",
+                    sensor->name, sensor->filtered_value, sensor->unit, quality_to_string(sensor->quality));
+            }
+        }
+        offset += snprintf(response + offset, response_size - offset, "],");
+
+        // Relays section
+        offset += snprintf(response + offset, response_size - offset, "\"relays\":[");
+        uint8_t relay_count = state_->get_relay_count();
+        for (uint8_t i = 0; i < relay_count && offset < (int)response_size - 100; i++) {
+            auto* relay = state_->get_relay_by_id(i);
+            if (relay) {
+                if (i > 0) offset += snprintf(response + offset, response_size - offset, ",");
+                offset += snprintf(response + offset, response_size - offset,
+                    "{\"name\":\"%s\",\"state\":%s}", relay->name, relay->state ? "true" : "false");
+            }
+        }
+        offset += snprintf(response + offset, response_size - offset, "],");
+
+        // Alarms section
+        offset += snprintf(response + offset, response_size - offset, "\"alarms\":[");
+        if (safety_) {
+            bool first = true;
+            for (uint8_t i = 1; i <= core::MAX_FERMENTERS && offset < (int)response_size - 150; i++) {
+                auto* alarm = safety_->get_alarm_state(i);
+                if (alarm && (alarm->temp_high_alarm || alarm->temp_low_alarm ||
+                              alarm->pressure_high_alarm || alarm->sensor_failure_alarm)) {
+                    if (!first) offset += snprintf(response + offset, response_size - offset, ",");
+                    first = false;
+                    offset += snprintf(response + offset, response_size - offset,
+                        "{\"fermenter\":%d,\"temp_high\":%s,\"temp_low\":%s,\"pressure_high\":%s,\"sensor_failure\":%s}",
+                        i, alarm->temp_high_alarm ? "true" : "false", alarm->temp_low_alarm ? "true" : "false",
+                        alarm->pressure_high_alarm ? "true" : "false", alarm->sensor_failure_alarm ? "true" : "false");
+                }
+            }
+        }
+        offset += snprintf(response + offset, response_size - offset, "],");
+
+        // Modbus stats
+        float error_rate = sys.modbus_transactions > 0 ? 100.0f * sys.modbus_errors / sys.modbus_transactions : 0;
+        offset += snprintf(response + offset, response_size - offset,
+            "\"modbus\":{\"transactions\":%lu,\"errors\":%lu,\"error_rate\":%.2f},",
+            (unsigned long)sys.modbus_transactions, (unsigned long)sys.modbus_errors, error_rate);
+
+        // Inputs section
+        offset += snprintf(response + offset, response_size - offset, "\"inputs\":[");
+        if (gpio_) {
+            for (uint8_t i = 0; i < 8; i++) {
+                if (i > 0) offset += snprintf(response + offset, response_size - offset, ",");
+                offset += snprintf(response + offset, response_size - offset,
+                    "{\"id\":%d,\"state\":%s}", i + 1, gpio_->get_digital_input(i) ? "true" : "false");
+            }
+        }
+        offset += snprintf(response + offset, response_size - offset, "],");
+
+        // Outputs section
+        offset += snprintf(response + offset, response_size - offset, "\"outputs\":[");
+        if (gpio_) {
+            for (uint8_t i = 0; i < 8; i++) {
+                if (i > 0) offset += snprintf(response + offset, response_size - offset, ",");
+                offset += snprintf(response + offset, response_size - offset,
+                    "{\"id\":%d,\"state\":%s}", i + 1, gpio_->get_relay_state(i) ? "true" : "false");
+            }
+        }
+        offset += snprintf(response + offset, response_size - offset, "],");
+
+        // Config section
+        if (config_) {
+            offset += snprintf(response + offset, response_size - offset,
+                "\"config\":{\"fermenter_count\":%d,\"modbus_device_count\":%d,\"gpio_relay_count\":%d},",
+                config_->fermenter_count, config_->hardware.modbus_device_count, config_->hardware.gpio_relay_count);
+        } else {
+            offset += snprintf(response + offset, response_size - offset, "\"config\":{},");
+        }
+
+        // Modules section
+        offset += snprintf(response + offset, response_size - offset,
+            "\"modules\":{\"wifi\":%s,\"ntp\":%s,\"http\":%s,\"mqtt\":%s,\"can\":%s,\"debug_console\":%s},",
+#ifdef WIFI_NTP_ENABLED
+            "true", "true",
+#else
+            "false", "false",
+#endif
+#ifdef HTTP_ENABLED
+            "true",
+#else
+            "false",
+#endif
+#ifdef MQTT_ENABLED
+            "true",
+#else
+            "false",
+#endif
+#ifdef CAN_ENABLED
+            "true",
+#else
+            "false",
+#endif
+#ifdef DEBUG_CONSOLE_ENABLED
+            "true"
+#else
+            "false"
+#endif
+        );
+
+        // CAN status
+#ifdef CAN_ENABLED
+        if (can_module_) {
+            auto* can = static_cast<CANModule*>(can_module_);
+            auto stats = can->get_stats();
+            offset += snprintf(response + offset, response_size - offset,
+                "\"can\":{\"tx\":%lu,\"rx\":%lu,\"errors\":%lu,\"state\":\"%s\"}",
+                (unsigned long)stats.tx_count, (unsigned long)stats.rx_count,
+                (unsigned long)stats.error_count, stats.bus_ok ? "OK" : "ERROR");
+        } else {
+            offset += snprintf(response + offset, response_size - offset, "\"can\":{\"state\":\"OFFLINE\"}");
+        }
+#else
+        offset += snprintf(response + offset, response_size - offset, "\"can\":{\"state\":\"DISABLED\"}");
+#endif
+
+        // Close JSON
+        offset += snprintf(response + offset, response_size - offset, "}");
+
         return 200;
     }
 };

@@ -4,7 +4,7 @@
 
 #include "hal/interfaces.h"
 #include "driver/gpio.h"
-#include "driver/i2c.h"
+#include "driver/i2c_master.h"
 #include "esp_log.h"
 #include <cstring>
 
@@ -35,37 +35,53 @@ public:
     // I2C pins (shared with RTC)
     static constexpr int I2C_SDA_PIN = 42;
     static constexpr int I2C_SCL_PIN = 41;
-    static constexpr i2c_port_t I2C_PORT = I2C_NUM_0;
 
     // Digital input GPIO pins (DI1-DI8)
     static constexpr uint8_t DI_PINS[MAX_INPUTS] = {4, 5, 6, 7, 8, 9, 10, 11};
 
-    ESP32GPIO() : initialized_(false), output_state_(0) {
+    ESP32GPIO() : initialized_(false), output_state_(0), i2c_bus_(nullptr), tca9554_dev_(nullptr) {
         memset(relay_states_, 0, sizeof(relay_states_));
+    }
+
+    ~ESP32GPIO() {
+        if (tca9554_dev_) {
+            i2c_master_bus_rm_device(tca9554_dev_);
+        }
+        if (i2c_bus_) {
+            i2c_del_master_bus(i2c_bus_);
+        }
     }
 
     /**
      * Initialize I2C and configure TCA9554PWR for outputs
      */
     bool initialize() {
-        // Configure I2C
-        i2c_config_t conf = {};
-        conf.mode = I2C_MODE_MASTER;
-        conf.sda_io_num = I2C_SDA_PIN;
-        conf.scl_io_num = I2C_SCL_PIN;
-        conf.sda_pullup_en = GPIO_PULLUP_ENABLE;
-        conf.scl_pullup_en = GPIO_PULLUP_ENABLE;
-        conf.master.clk_speed = 100000;  // 100kHz
+        // Configure I2C master bus
+        i2c_master_bus_config_t bus_config = {};
+        bus_config.clk_source = I2C_CLK_SRC_DEFAULT;
+        bus_config.i2c_port = I2C_NUM_0;
+        bus_config.scl_io_num = (gpio_num_t)I2C_SCL_PIN;
+        bus_config.sda_io_num = (gpio_num_t)I2C_SDA_PIN;
+        bus_config.glitch_ignore_cnt = 7;
+        bus_config.flags.enable_internal_pullup = true;
 
-        esp_err_t ret = i2c_param_config(I2C_PORT, &conf);
+        esp_err_t ret = i2c_new_master_bus(&bus_config, &i2c_bus_);
         if (ret != ESP_OK) {
-            ESP_LOGE(TAG, "Failed to configure I2C: %s", esp_err_to_name(ret));
+            ESP_LOGE(TAG, "Failed to create I2C bus: %s", esp_err_to_name(ret));
             return false;
         }
 
-        ret = i2c_driver_install(I2C_PORT, I2C_MODE_MASTER, 0, 0, 0);
+        // Add TCA9554PWR device
+        i2c_device_config_t dev_config = {};
+        dev_config.dev_addr_length = I2C_ADDR_BIT_LEN_7;
+        dev_config.device_address = TCA9554_ADDR;
+        dev_config.scl_speed_hz = 100000;  // 100kHz
+
+        ret = i2c_master_bus_add_device(i2c_bus_, &dev_config, &tca9554_dev_);
         if (ret != ESP_OK) {
-            ESP_LOGE(TAG, "Failed to install I2C driver: %s", esp_err_to_name(ret));
+            ESP_LOGE(TAG, "Failed to add TCA9554 device: %s", esp_err_to_name(ret));
+            i2c_del_master_bus(i2c_bus_);
+            i2c_bus_ = nullptr;
             return false;
         }
 
@@ -134,17 +150,12 @@ public:
      * Check if I2C communication with TCA9554 is working
      */
     bool check_i2c() const {
-        if (!initialized_) return false;
+        if (!initialized_ || !tca9554_dev_) return false;
 
         // Try to read the config register
+        uint8_t reg = TCA9554_CONFIG_REG;
         uint8_t data;
-        i2c_cmd_handle_t cmd = i2c_cmd_link_create();
-        i2c_master_start(cmd);
-        i2c_master_write_byte(cmd, (TCA9554_ADDR << 1) | I2C_MASTER_READ, true);
-        i2c_master_read_byte(cmd, &data, I2C_MASTER_NACK);
-        i2c_master_stop(cmd);
-        esp_err_t ret = i2c_master_cmd_begin(I2C_PORT, cmd, pdMS_TO_TICKS(100));
-        i2c_cmd_link_delete(cmd);
+        esp_err_t ret = i2c_master_transmit_receive(tca9554_dev_, &reg, 1, &data, 1, 100);
 
         return (ret == ESP_OK);
     }
@@ -203,17 +214,14 @@ private:
     bool initialized_;
     uint8_t output_state_;
     bool relay_states_[MAX_OUTPUTS];
+    i2c_master_bus_handle_t i2c_bus_;
+    i2c_master_dev_handle_t tca9554_dev_;
 
     bool write_tca9554_register(uint8_t reg, uint8_t value) {
-        i2c_cmd_handle_t cmd = i2c_cmd_link_create();
-        i2c_master_start(cmd);
-        i2c_master_write_byte(cmd, (TCA9554_ADDR << 1) | I2C_MASTER_WRITE, true);
-        i2c_master_write_byte(cmd, reg, true);
-        i2c_master_write_byte(cmd, value, true);
-        i2c_master_stop(cmd);
+        if (!tca9554_dev_) return false;
 
-        esp_err_t ret = i2c_master_cmd_begin(I2C_PORT, cmd, pdMS_TO_TICKS(100));
-        i2c_cmd_link_delete(cmd);
+        uint8_t data[2] = {reg, value};
+        esp_err_t ret = i2c_master_transmit(tca9554_dev_, data, 2, 100);
 
         return ret == ESP_OK;
     }

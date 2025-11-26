@@ -84,8 +84,11 @@
                         <input type="password" class="form-control" id="password" placeholder="Enter admin password" required>
                     </div>
                     <div class="d-grid">
-                        <button type="submit" class="btn btn-primary">
-                            <i class="bi bi-box-arrow-in-right"></i> Login
+                        <button type="submit" class="btn btn-primary" id="loginBtn">
+                            <span id="loginBtnText"><i class="bi bi-box-arrow-in-right"></i> Login</span>
+                            <span id="loginBtnSpinner" style="display: none;">
+                                <span class="spinner-border spinner-border-sm me-2" role="status"></span>Logging in...
+                            </span>
                         </button>
                     </div>
                     <div id="loginError" class="alert alert-danger mt-3" style="display: none;"></div>
@@ -638,6 +641,15 @@
         // Auth functions
         async function login() {
             const password = document.getElementById('password').value;
+            const btn = document.getElementById('loginBtn');
+            const btnText = document.getElementById('loginBtnText');
+            const btnSpinner = document.getElementById('loginBtnSpinner');
+
+            // Show spinner
+            btn.disabled = true;
+            btnText.style.display = 'none';
+            btnSpinner.style.display = 'inline';
+
             try {
                 const response = await fetch(API_BASE + '/login', {
                     method: 'POST',
@@ -655,6 +667,11 @@
                 }
             } catch (err) {
                 showError('Connection failed: ' + err.message);
+            } finally {
+                // Hide spinner
+                btn.disabled = false;
+                btnText.style.display = 'inline';
+                btnSpinner.style.display = 'none';
             }
         }
 
@@ -776,14 +793,19 @@
                 document.getElementById('loading-overlay').style.display = 'block';
                 document.querySelectorAll('.panel').forEach(p => p.style.display = 'none');
             }
-            refreshAll();
-            refreshCpuHistory();
-            refreshNetworkHistory();
-            // Start adaptive refresh loop
+            // Stagger initial requests to avoid overwhelming TLS sessions
             refreshActive = true;
-            scheduleNextRefresh();
-            cpuGraphInterval = setInterval(refreshCpuHistory, 15000);
-            networkGraphInterval = setInterval(refreshNetworkHistory, 15000);
+            refreshAll();
+            setTimeout(() => {
+                refreshCpuHistory();
+                cpuGraphInterval = setInterval(refreshCpuHistory, 15000);
+            }, 1000);
+            setTimeout(() => {
+                refreshNetworkHistory();
+                networkGraphInterval = setInterval(refreshNetworkHistory, 15000);
+            }, 2000);
+            // Start adaptive refresh loop after initial dashboard load
+            setTimeout(scheduleNextRefresh, 3000);
         }
 
         function showError(msg) {
@@ -801,7 +823,10 @@
             };
             const response = await fetch(API_BASE + endpoint, options);
             if (response.status === 401) {
-                logout();
+                // Only logout if connection was stable (not during reconnection)
+                if (connectionState.failureCount === 0) {
+                    logout();
+                }
                 throw new Error('Session expired');
             }
             return response.json();
@@ -810,28 +835,17 @@
         // Data refresh
         async function refreshAll() {
             try {
-                const [status, sensors, relays, alarms, modbus, inputs, outputs, config, modules, can] =
-                    await Promise.all([
-                        api('/status'),
-                        api('/sensors'),
-                        api('/relays'),
-                        api('/alarms'),
-                        api('/modbus/stats'),
-                        api('/inputs'),
-                        api('/outputs'),
-                        api('/config'),
-                        api('/modules'),
-                        api('/can/status').catch(() => ({tx:0, rx:0, errors:0, state:'OFFLINE'}))
-                    ]);
+                // Single API call for all dashboard data
+                const data = await api('/dashboard');
 
-                updateStatus(status, modbus, can);
-                updateSensors(sensors?.sensors || []);
-                updateRelays(relays?.relays || []);
-                updateAlarms(alarms?.alarms || []);
-                updateModbus(modbus);
-                updateGPIO(inputs?.inputs || [], outputs?.outputs || []);
-                updateConfig(config);
-                updateModules(modules?.modules || {});
+                updateStatus(data.status, data.modbus, data.can);
+                updateSensors(data.sensors || []);
+                updateRelays(data.relays || []);
+                updateAlarms(data.alarms || []);
+                updateModbus(data.modbus);
+                updateGPIO(data.inputs || [], data.outputs || []);
+                updateConfig(data.config);
+                updateModules(data.modules || {});
 
                 // Success - reset backoff
                 connectionState.failureCount = 0;
