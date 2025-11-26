@@ -52,7 +52,8 @@ public:
         CONNECTED,
         PROVISIONING,      // SmartConfig or AP active
         PROVISIONING_DONE,
-        FAILED
+        FAILED,
+        STANDBY            // Disconnected, ready for fast failover
     };
 
     enum class ProvisionMethod {
@@ -422,8 +423,51 @@ public:
 #endif
         state_ = State::IDLE;
         set_auto_connect(false);
+        standby_mode_ = false;
         ESP_LOGI("Prov", "Disconnected, auto-connect disabled");
     }
+
+    /**
+     * Enter standby mode - disconnect but keep WiFi station ready for fast failover
+     * Used when Ethernet is on same network
+     */
+    void enter_standby() {
+#ifdef ESP32_BUILD
+        if (state_ == State::CONNECTED) {
+            // Disconnect but keep station mode active for fast reconnect
+            esp_wifi_disconnect();
+            // WiFi stack stays initialized, just not associated
+        }
+#endif
+        standby_mode_ = true;
+        state_ = State::STANDBY;
+        memset(ip_address_, 0, sizeof(ip_address_));
+        memset(netmask_, 0, sizeof(netmask_));
+        memset(gateway_, 0, sizeof(gateway_));
+        ESP_LOGI("Prov", "WiFi entering standby (Ethernet primary, WiFi ready for failover)");
+    }
+
+    /**
+     * Resume from standby - reconnect WiFi quickly
+     * Used when Ethernet link goes down
+     */
+    void resume_from_standby() {
+        if (!standby_mode_) return;
+        standby_mode_ = false;
+        ESP_LOGI("Prov", "WiFi failover: resuming from standby (Ethernet link down)");
+#ifdef ESP32_BUILD
+        if (stored_creds_.valid) {
+            // Fast reconnect - WiFi station is already initialized
+            state_ = State::CONNECTING;
+            esp_wifi_connect();
+        }
+#endif
+    }
+
+    /**
+     * Check if in standby mode
+     */
+    bool is_standby() const { return standby_mode_; }
 
     /**
      * Set auto-connect flag (persisted to NVS)
@@ -458,6 +502,7 @@ public:
             case State::PROVISIONING:      return "PROVISIONING";
             case State::PROVISIONING_DONE: return "PROVISIONING_DONE";
             case State::FAILED:            return "FAILED";
+            case State::STANDBY:           return "STANDBY (Ethernet primary)";
             default:                       return "UNKNOWN";
         }
     }
@@ -972,6 +1017,7 @@ private:
     char gateway_[16];
     bool initialized_;
     bool auto_connect_ = true;  // Auto-connect on boot (persisted to NVS)
+    bool standby_mode_ = false; // WiFi disabled due to Ethernet on same network
     uint8_t ap_client_count_ = 0;
 
 public:

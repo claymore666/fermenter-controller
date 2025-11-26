@@ -96,6 +96,7 @@ cd modbus_simulator && python simulator.py
 - Status LED (WS2812 RGB on GPIO38)
 - CAN bus communication (TWAI at 500kbps)
 - Ethernet connectivity (W5500 SPI on GPIO12-16, GPIO39)
+- Network failover (WiFi standby when Ethernet on same network)
 
 ### Not Implemented
 - MQTT client
@@ -192,6 +193,25 @@ On first boot (or after `ssl clear`), the device generates a unique RSA-2048 key
 Debug console commands:
 - `ssl status` - Show certificate status and size
 - `ssl clear` - Delete certificate (regenerates on reboot)
+
+## Network Failover
+
+When both WiFi and Ethernet are enabled, the device implements automatic network failover:
+
+| Scenario | Behavior |
+|----------|----------|
+| Both on same network | WiFi enters standby, Ethernet is primary |
+| Different networks | Both interfaces stay active (dual-homed) |
+| Ethernet link down | WiFi resumes from standby (fast failover) |
+| Ethernet link restored | WiFi returns to standby |
+
+**Same network detection**: Compares gateway IP addresses. If both interfaces have the same gateway, they're considered on the same network.
+
+**WiFi standby mode**: WiFi station stays initialized but disconnected, allowing fast reconnection (~1-2 seconds) when Ethernet fails.
+
+Debug console commands:
+- `wifi` - Shows WiFi status including standby state
+- `eth` - Shows Ethernet status (IP, gateway, speed)
 
 ## Code Robustness Guidelines
 

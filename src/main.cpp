@@ -173,6 +173,78 @@ void cleanup_modules() {
     if (g_modbus_module) { delete g_modbus_module; g_modbus_module = nullptr; }
 }
 
+// ============================================================================
+// Network Failover Manager
+// ============================================================================
+#if defined(ETHERNET_ENABLED) && defined(WIFI_NTP_ENABLED) && defined(ESP32_BUILD)
+
+/**
+ * Compare two gateway addresses to determine if interfaces are on same network
+ */
+static bool gateways_match(const char* gw1, const char* gw2) {
+    if (!gw1 || !gw2) return false;
+    if (strlen(gw1) == 0 || strlen(gw2) == 0) return false;
+    return strcmp(gw1, gw2) == 0;
+}
+
+/**
+ * Evaluate network interfaces and manage WiFi standby
+ * Called when either interface gets an IP or when Ethernet link changes
+ */
+static void evaluate_network_failover() {
+    if (!g_wifi_prov || !g_ethernet) return;
+
+    bool wifi_connected = g_wifi_prov->is_connected();
+    bool eth_connected = g_ethernet->is_connected();
+    bool wifi_standby = g_wifi_prov->is_standby();
+
+    const char* wifi_gw = g_wifi_prov->get_gateway();
+    const char* eth_gw = g_ethernet->get_gateway();
+
+    ESP_LOGI("NetMgr", "Evaluating: WiFi=%s(%s) ETH=%s(%s) Standby=%s",
+             wifi_connected ? "up" : "down", wifi_gw ? wifi_gw : "none",
+             eth_connected ? "up" : "down", eth_gw ? eth_gw : "none",
+             wifi_standby ? "yes" : "no");
+
+    if (eth_connected && wifi_connected && !wifi_standby) {
+        // Both connected - check if same network
+        if (gateways_match(wifi_gw, eth_gw)) {
+            ESP_LOGI("NetMgr", "Same gateway detected - WiFi entering standby, Ethernet primary");
+            g_wifi_prov->enter_standby();
+        } else {
+            ESP_LOGI("NetMgr", "Different networks - keeping both interfaces active");
+        }
+    } else if (!eth_connected && wifi_standby) {
+        // Ethernet down, WiFi in standby - failover to WiFi
+        ESP_LOGI("NetMgr", "Ethernet down - failing over to WiFi");
+        g_wifi_prov->resume_from_standby();
+    }
+}
+
+/**
+ * Callback for Ethernet link state changes
+ */
+static void on_ethernet_link_change(bool link_up, void* user_data) {
+    (void)user_data;
+    ESP_LOGI("NetMgr", "Ethernet link %s", link_up ? "UP" : "DOWN");
+    if (!link_up) {
+        // Link down - trigger failover evaluation
+        evaluate_network_failover();
+    }
+}
+
+/**
+ * Callback for Ethernet IP obtained
+ */
+static void on_ethernet_ip_obtained(const hal::esp32::NetworkInfo& info, void* user_data) {
+    (void)user_data;
+    ESP_LOGI("NetMgr", "Ethernet got IP: %s (gateway: %s)", info.ip_address, info.gateway);
+    // Evaluate whether to put WiFi in standby
+    evaluate_network_failover();
+}
+
+#endif // ETHERNET_ENABLED && WIFI_NTP_ENABLED && ESP32_BUILD
+
 /**
  * Initialize the system
  * @param config_loaded true if config was already loaded externally
@@ -333,10 +405,18 @@ bool system_init(bool config_loaded = false) {
     // Initialize Ethernet (W5500 SPI)
     g_ethernet = new hal::esp32::ESP32Ethernet();
     if (g_ethernet && g_ethernet->init()) {
+#ifdef WIFI_NTP_ENABLED
+        // Set up failover callbacks before starting
+        g_ethernet->set_callbacks(on_ethernet_link_change, on_ethernet_ip_obtained, nullptr);
+#endif
         if (g_ethernet->start()) {
             // Wait briefly for link
             if (g_ethernet->wait_for_connection(5000)) {
                 printf("Ethernet connected: %s\n", g_ethernet->get_ip_address());
+#ifdef WIFI_NTP_ENABLED
+                // Evaluate network failover now that Ethernet is up
+                evaluate_network_failover();
+#endif
             } else {
                 printf("Ethernet: link up, waiting for DHCP...\n");
             }

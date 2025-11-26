@@ -33,6 +33,10 @@ struct NetworkInfo {
     int link_speed_mbps;
 };
 
+// Callback types for network events
+using EthernetLinkCallback = void (*)(bool link_up, void* user_data);
+using EthernetIpCallback = void (*)(const NetworkInfo& info, void* user_data);
+
 /**
  * ESP32 Ethernet interface for W5500 SPI chip
  * Used on Waveshare ESP32-S3-POE-ETH-8DI-8DO board
@@ -61,7 +65,8 @@ public:
     static constexpr spi_host_device_t SPI_HOST = SPI2_HOST;
     static constexpr int SPI_CLOCK_MHZ = 20;
 
-    ESP32Ethernet() : initialized_(false), connected_(false), eth_handle_(nullptr), eth_netif_(nullptr) {
+    ESP32Ethernet() : initialized_(false), connected_(false), eth_handle_(nullptr), eth_netif_(nullptr),
+                      link_callback_(nullptr), ip_callback_(nullptr), callback_user_data_(nullptr) {
         memset(&info_, 0, sizeof(info_));
         eth_event_group_ = xEventGroupCreate();
     }
@@ -260,6 +265,18 @@ public:
     int get_link_speed() const { return info_.link_speed_mbps; }
 
     /**
+     * Set callbacks for network events
+     * @param link_cb Called when link state changes (up/down)
+     * @param ip_cb Called when IP address is obtained via DHCP
+     * @param user_data Passed to callbacks
+     */
+    void set_callbacks(EthernetLinkCallback link_cb, EthernetIpCallback ip_cb, void* user_data) {
+        link_callback_ = link_cb;
+        ip_callback_ = ip_cb;
+        callback_user_data_ = user_data;
+    }
+
+    /**
      * Wait for connection with timeout
      * @param timeout_ms Timeout in milliseconds
      * @return true if connected within timeout
@@ -284,6 +301,9 @@ private:
     esp_event_handler_instance_t eth_event_instance_;
     esp_event_handler_instance_t ip_event_instance_;
     NetworkInfo info_;
+    EthernetLinkCallback link_callback_;
+    EthernetIpCallback ip_callback_;
+    void* callback_user_data_;
 
     static void eth_event_handler(void* arg, esp_event_base_t event_base,
                                   int32_t event_id, void* event_data) {
@@ -306,9 +326,14 @@ private:
             case ETHERNET_EVENT_DISCONNECTED:
                 ESP_LOGI(TAG, "Ethernet link down");
                 self->connected_ = false;
+                self->info_.connected = false;
                 memset(self->info_.ip_address, 0, sizeof(self->info_.ip_address));
                 xEventGroupClearBits(self->eth_event_group_, ETH_CONNECTED_BIT);
                 xEventGroupSetBits(self->eth_event_group_, ETH_FAIL_BIT);
+                // Notify callback - link down
+                if (self->link_callback_) {
+                    self->link_callback_(false, self->callback_user_data_);
+                }
                 break;
 
             case ETHERNET_EVENT_START:
@@ -349,6 +374,14 @@ private:
 
         xEventGroupSetBits(self->eth_event_group_, ETH_CONNECTED_BIT);
         xEventGroupClearBits(self->eth_event_group_, ETH_FAIL_BIT);
+
+        // Notify callbacks - link up with IP
+        if (self->link_callback_) {
+            self->link_callback_(true, self->callback_user_data_);
+        }
+        if (self->ip_callback_) {
+            self->ip_callback_(self->info_, self->callback_user_data_);
+        }
     }
 };
 

@@ -219,7 +219,7 @@ Ethernet Status:
 
 | Command | Description |
 |---------|-------------|
-| `wifi` | Show WiFi status (SSID, IP, signal strength) |
+| `wifi` | Show WiFi status (SSID, IP, signal strength, standby state) |
 | `wifi set <ssid> <password>` | Set WiFi credentials |
 | `wifi clear` | Clear stored credentials |
 | `wifi scan` | Scan for available networks |
@@ -228,10 +228,15 @@ Example:
 ```
 > wifi
 WiFi Status:
-  Connected: Yes
+  State: CONNECTED
   SSID: Braustube
   IP: 192.168.0.139
   RSSI: -45 dBm
+
+> wifi
+WiFi Status:
+  State: STANDBY (Ethernet primary)
+  SSID: Braustube
 
 > wifi scan
 Scanning...
@@ -240,6 +245,8 @@ Found 3 networks:
   Guest (-72 dBm) Open
   Neighbor (-85 dBm) WPA2
 ```
+
+**Note**: When Ethernet is connected on the same network, WiFi enters STANDBY mode. It remains ready for fast failover if Ethernet link goes down.
 
 ### SSL Certificate
 
