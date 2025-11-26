@@ -455,6 +455,8 @@ private:
 #ifdef WIFI_NTP_ENABLED
         if (sys.wifi_rssi != 0) {
             printf("  WiFi .............. OK (%d dBm)\r\n", sys.wifi_rssi);
+        } else if (wifi_prov_ && wifi_prov_->is_standby()) {
+            serial_->println("  WiFi .............. HOT STANDBY");
         } else {
             serial_->println("  WiFi .............. DISCONNECTED");
         }

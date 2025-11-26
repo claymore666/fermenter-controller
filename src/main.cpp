@@ -428,10 +428,17 @@ bool system_init(bool config_loaded = false) {
 #endif
 
 #ifdef HTTP_ENABLED
-    // Initialize HTTP server (requires WiFi)
+    // Initialize HTTP server (requires network - WiFi or Ethernet)
+    bool network_available = false;
 #ifdef WIFI_NTP_ENABLED
-    if (g_wifi_prov && g_wifi_prov->is_connected()) {
+    network_available = (g_wifi_prov && g_wifi_prov->is_connected());
 #endif
+#ifdef ETHERNET_ENABLED
+    if (!network_available && g_ethernet && g_ethernet->is_connected()) {
+        network_available = true;
+    }
+#endif
+    if (network_available) {
         g_http_server = new HttpServer(
             &g_time, &g_state, &g_events, &g_config,
             g_safety, g_plan_manager, g_modbus, &g_storage, &g_gpio
@@ -455,9 +462,7 @@ bool system_init(bool config_loaded = false) {
                 printf("WARNING: HTTP server failed to start\n");
             }
         }
-#ifdef WIFI_NTP_ENABLED
     }
-#endif
 #endif
 
 #ifdef CAN_ENABLED
