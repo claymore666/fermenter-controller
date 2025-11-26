@@ -1501,11 +1501,20 @@ public:
             return 400;
         }
 
+        // Automatically log the user in after setup
+        const char* token = login(password);
+
 #ifdef ESP32_BUILD
-        ESP_LOGI(HTTP_LOG_TAG, "Device provisioned successfully");
+        ESP_LOGI(HTTP_LOG_TAG, "Device provisioned and logged in successfully");
 #endif
-        snprintf(response, response_size,
-            "{\"success\":true,\"message\":\"Device provisioned successfully\"}");
+        if (token) {
+            snprintf(response, response_size,
+                "{\"success\":true,\"message\":\"Device provisioned successfully\",\"token\":\"%s\"}", token);
+        } else {
+            // Fallback if login somehow fails (shouldn't happen)
+            snprintf(response, response_size,
+                "{\"success\":true,\"message\":\"Device provisioned successfully\"}");
+        }
         return 200;
     }
 

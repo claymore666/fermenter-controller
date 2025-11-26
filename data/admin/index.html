@@ -767,8 +767,16 @@
 
                 const data = await response.json();
                 if (data.success) {
-                    // Password created, now show login
-                    showLogin();
+                    // If token returned, log in automatically
+                    if (data.token) {
+                        authToken = data.token;
+                        localStorage.setItem('authToken', authToken);
+                        showDashboard();
+                        startPolling();
+                    } else {
+                        // Fallback: show login if no token
+                        showLogin();
+                    }
                 } else {
                     showSetupError(data.error || 'Setup failed');
                 }
