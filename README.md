@@ -1,6 +1,11 @@
 # Fermentation Controller
 
 [![Nightly Build](https://github.com/claymore666/fermenter-controller/actions/workflows/nightly.yml/badge.svg)](https://github.com/claymore666/fermenter-controller/actions/workflows/nightly.yml)
+[![CodeQL](https://github.com/claymore666/fermenter-controller/actions/workflows/codeql.yml/badge.svg)](https://github.com/claymore666/fermenter-controller/security/code-scanning)
+[![Release](https://img.shields.io/github/v/release/claymore666/fermenter-controller)](https://github.com/claymore666/fermenter-controller/releases/latest)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+[![ESP32-S3](https://img.shields.io/badge/Platform-ESP32--S3-blue)](https://www.espressif.com/en/products/socs/esp32-s3)
+[![PlatformIO](https://img.shields.io/badge/Build-PlatformIO-orange)](https://platformio.org/)
 
 ESP32-S3 based fermentation controller for brewery automation with MODBUS RTU sensors, PID temperature control, and REST API.
 

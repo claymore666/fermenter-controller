@@ -2101,34 +2101,36 @@ public:
     }
 
     int api_inputs(char* response, size_t response_size) {
-        int offset = snprintf(response, response_size, "{\"inputs\":[");
+        int offset = 0;
+        core::safe_snprintf_append(response, response_size, offset, "{\"inputs\":[");
 
         if (gpio_) {
             for (uint8_t i = 0; i < 8; i++) {
-                if (i > 0) offset += snprintf(response + offset, response_size - offset, ",");
+                if (i > 0) core::safe_snprintf_append(response, response_size, offset, ",");
                 bool state = gpio_->get_digital_input(i);
-                offset += snprintf(response + offset, response_size - offset,
+                core::safe_snprintf_append(response, response_size, offset,
                     "{\"id\":%d,\"state\":%s}", i + 1, state ? "true" : "false");
             }
         }
 
-        snprintf(response + offset, response_size - offset, "]}");
+        core::safe_snprintf_append(response, response_size, offset, "]}");
         return 200;
     }
 
     int api_outputs(char* response, size_t response_size) {
-        int offset = snprintf(response, response_size, "{\"outputs\":[");
+        int offset = 0;
+        core::safe_snprintf_append(response, response_size, offset, "{\"outputs\":[");
 
         if (gpio_) {
             for (uint8_t i = 0; i < 8; i++) {
-                if (i > 0) offset += snprintf(response + offset, response_size - offset, ",");
+                if (i > 0) core::safe_snprintf_append(response, response_size, offset, ",");
                 bool state = gpio_->get_relay_state(i);
-                offset += snprintf(response + offset, response_size - offset,
+                core::safe_snprintf_append(response, response_size, offset,
                     "{\"id\":%d,\"state\":%s}", i + 1, state ? "true" : "false");
             }
         }
 
-        snprintf(response + offset, response_size - offset, "]}");
+        core::safe_snprintf_append(response, response_size, offset, "]}");
         return 200;
     }
 
@@ -2221,8 +2223,8 @@ public:
         uint8_t count = history.get_sample_count();
 
         // Build JSON array of samples
-        int offset = snprintf(response, response_size,
-            "{\"samples\":[");
+        int offset = 0;
+        core::safe_snprintf_append(response, response_size, offset, "{\"samples\":[");
 
         if (count > 0) {
             uint8_t samples[core::CpuHistory::MAX_SAMPLES];
@@ -2230,13 +2232,13 @@ public:
 
             for (uint8_t i = 0; i < actual_count; i++) {
                 if (i > 0) {
-                    offset += snprintf(response + offset, response_size - offset, ",");
+                    core::safe_snprintf_append(response, response_size, offset, ",");
                 }
-                offset += snprintf(response + offset, response_size - offset, "%d", samples[i]);
+                core::safe_snprintf_append(response, response_size, offset, "%d", samples[i]);
             }
         }
 
-        snprintf(response + offset, response_size - offset,
+        core::safe_snprintf_append(response, response_size, offset,
             "],\"interval_sec\":%d,\"count\":%d}",
             core::CpuHistory::SAMPLE_INTERVAL_MS / 1000,
             count);
@@ -2249,8 +2251,8 @@ public:
         uint8_t count = history.get_sample_count();
 
         // Build JSON array of samples (utilization %)
-        int offset = snprintf(response, response_size,
-            "{\"samples\":[");
+        int offset = 0;
+        core::safe_snprintf_append(response, response_size, offset, "{\"samples\":[");
 
         if (count > 0) {
             uint8_t samples[core::NetworkHistory::MAX_SAMPLES];
@@ -2258,13 +2260,13 @@ public:
 
             for (uint8_t i = 0; i < actual_count; i++) {
                 if (i > 0) {
-                    offset += snprintf(response + offset, response_size - offset, ",");
+                    core::safe_snprintf_append(response, response_size, offset, ",");
                 }
-                offset += snprintf(response + offset, response_size - offset, "%d", samples[i]);
+                core::safe_snprintf_append(response, response_size, offset, "%d", samples[i]);
             }
         }
 
-        snprintf(response + offset, response_size - offset,
+        core::safe_snprintf_append(response, response_size, offset,
             "],\"interval_sec\":%d,\"count\":%d,\"link_speed_mbps\":%lu,\"channel\":%d}",
             core::NetworkHistory::SAMPLE_INTERVAL_MS / 1000,
             count,
@@ -2453,26 +2455,26 @@ public:
             (unsigned long)sys.modbus_transactions, (unsigned long)sys.modbus_errors, error_rate);
 
         // Inputs section
-        offset += snprintf(response + offset, response_size - offset, "\"inputs\":[");
+        core::safe_snprintf_append(response, response_size, offset, "\"inputs\":[");
         if (gpio_) {
             for (uint8_t i = 0; i < 8; i++) {
-                if (i > 0) offset += snprintf(response + offset, response_size - offset, ",");
-                offset += snprintf(response + offset, response_size - offset,
+                if (i > 0) core::safe_snprintf_append(response, response_size, offset, ",");
+                core::safe_snprintf_append(response, response_size, offset,
                     "{\"id\":%d,\"state\":%s}", i + 1, gpio_->get_digital_input(i) ? "true" : "false");
             }
         }
-        offset += snprintf(response + offset, response_size - offset, "],");
+        core::safe_snprintf_append(response, response_size, offset, "],");
 
         // Outputs section
-        offset += snprintf(response + offset, response_size - offset, "\"outputs\":[");
+        core::safe_snprintf_append(response, response_size, offset, "\"outputs\":[");
         if (gpio_) {
             for (uint8_t i = 0; i < 8; i++) {
-                if (i > 0) offset += snprintf(response + offset, response_size - offset, ",");
-                offset += snprintf(response + offset, response_size - offset,
+                if (i > 0) core::safe_snprintf_append(response, response_size, offset, ",");
+                core::safe_snprintf_append(response, response_size, offset,
                     "{\"id\":%d,\"state\":%s}", i + 1, gpio_->get_relay_state(i) ? "true" : "false");
             }
         }
-        offset += snprintf(response + offset, response_size - offset, "],");
+        core::safe_snprintf_append(response, response_size, offset, "],");
 
         // Config section
         if (config_) {
