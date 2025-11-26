@@ -121,6 +121,14 @@ public:
         devcfg.spics_io_num = PIN_CS;
         devcfg.queue_size = 20;
 
+        // Install GPIO ISR service for Ethernet interrupt
+        ret = gpio_install_isr_service(0);
+        if (ret != ESP_OK && ret != ESP_ERR_INVALID_STATE) {
+            // ESP_ERR_INVALID_STATE means already installed, which is OK
+            ESP_LOGE(TAG, "Failed to install GPIO ISR service: %s", esp_err_to_name(ret));
+            return false;
+        }
+
         // Create Ethernet MAC for W5500
         eth_w5500_config_t w5500_config = ETH_W5500_DEFAULT_CONFIG(SPI_HOST, &devcfg);
         w5500_config.int_gpio_num = PIN_INT;
@@ -149,6 +157,19 @@ public:
             ESP_LOGE(TAG, "Failed to install Ethernet driver: %s", esp_err_to_name(ret));
             return false;
         }
+
+        // Generate MAC address from ESP32 base MAC (W5500 has no built-in MAC)
+        uint8_t eth_mac[6];
+        esp_read_mac(eth_mac, ESP_MAC_ETH);
+        // Ensure locally administered bit is set (bit 1 of first byte)
+        eth_mac[0] = (eth_mac[0] | 0x02) & 0xFE;  // Set local bit, clear multicast bit
+        ret = esp_eth_ioctl(eth_handle_, ETH_CMD_S_MAC_ADDR, eth_mac);
+        if (ret != ESP_OK) {
+            ESP_LOGE(TAG, "Failed to set MAC address: %s", esp_err_to_name(ret));
+            return false;
+        }
+        ESP_LOGI(TAG, "MAC address: %02X:%02X:%02X:%02X:%02X:%02X",
+                 eth_mac[0], eth_mac[1], eth_mac[2], eth_mac[3], eth_mac[4], eth_mac[5]);
 
         // Create default netif for Ethernet
         esp_netif_config_t netif_cfg = ESP_NETIF_DEFAULT_ETH();
