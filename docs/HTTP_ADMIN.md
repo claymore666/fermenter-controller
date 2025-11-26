@@ -11,12 +11,18 @@ The HTTP Admin interface provides a complete web-based replacement for the debug
 ### Status Dashboard
 - **System Information**
   - Firmware version and build number
-  - Build timestamp
+  - Build timestamp and hostname link (mDNS FQDN)
   - Flash usage with progress bar (color-coded: green <70%, yellow <85%, red ≥85%)
+  - CPU usage with history graph (30 minutes)
   - Uptime, free heap, sensor/fermenter counts
 
+- **Network Interfaces**
+  - **WiFi**: SSID, IP, netmask, gateway, RSSI (color-coded)
+  - **Ethernet**: IP, netmask, gateway, link speed
+  - Hot Standby badge (cyan) when WiFi is dormant during Ethernet failover
+  - Network bandwidth history graph (30 minutes, samples active interface)
+
 - **Connectivity**
-  - WiFi signal strength (RSSI with color coding)
   - NTP sync status
   - System time (live)
   - Timezone
@@ -81,8 +87,13 @@ Table-based interface with:
 │   include/modules/http_server.h         │
 ├─────────────────────────────────────────┤
 │  Routes:                                │
+│  GET  /api/health         (no auth)     │
+│  POST /api/setup          (first boot)  │
 │  POST /api/login                        │
 │  POST /api/logout                       │
+│  GET  /api/dashboard      (consolidated)│
+│  GET  /api/cpu/history                  │
+│  GET  /api/network/history              │
 │  GET  /api/status                       │
 │  GET  /api/sensors                      │
 │  POST /api/sensor/{name}/config         │
@@ -95,6 +106,8 @@ Table-based interface with:
 │  GET  /api/can/status                   │
 │  GET  /api/config                       │
 │  GET  /api/modules                      │
+│  POST /api/password                     │
+│  POST /api/factory_reset                │
 │  POST /api/reboot                       │
 └──────────────┬──────────────────────────┘
                │
@@ -210,6 +223,115 @@ Invalidate current session.
 ```
 
 ### System Status
+
+#### GET /api/health
+Check device provisioning status (no authentication required).
+
+**Response (200):**
+```json
+{
+  "status": "ok",
+  "provisioned": true
+}
+```
+
+#### GET /api/dashboard
+Get all dashboard data in a single request (consolidated endpoint for efficiency).
+
+**Headers:** `Authorization: Bearer <token>`
+
+**Response (200):**
+```json
+{
+  "status": {
+    "version": "0.1.0",
+    "build": "o1zevz",
+    "built": "Nov 26 2025 14:30:00",
+    "hostname": "fermenter-230778.local",
+    "uptime": "2h 15m",
+    "uptime_seconds": 8100,
+    "free_heap": 245000,
+    "ntp_synced": true,
+    "sensor_count": 2,
+    "fermenter_count": 1,
+    "system_time": "2025-11-26 17:30:45",
+    "timezone": "CET-1CEST",
+    "cpu_usage": 0.2,
+    "cpu_freq_mhz": 80,
+    "cpu_freq_max_mhz": 240,
+    "flash_used": 1015808,
+    "flash_total": 16777216
+  },
+  "network": {
+    "wifi": {
+      "connected": false,
+      "standby": true,
+      "ip": "192.168.0.138",
+      "netmask": "255.255.255.0",
+      "gateway": "192.168.0.1",
+      "ssid": "Braustube",
+      "rssi": -65
+    },
+    "ethernet": {
+      "connected": true,
+      "ip": "192.168.0.139",
+      "netmask": "255.255.255.0",
+      "gateway": "192.168.0.1",
+      "speed": 100
+    }
+  },
+  "modbus": {
+    "transactions": 1250,
+    "errors": 3,
+    "error_rate": 0.24
+  },
+  "can": {
+    "tx": 15,
+    "rx": 42,
+    "errors": 0,
+    "state": "OK"
+  },
+  "sensors": [...],
+  "relays": [...],
+  "inputs": [...],
+  "outputs": [...],
+  "alarms": [],
+  "config": {...},
+  "modules": {...}
+}
+```
+
+#### GET /api/cpu/history
+Get CPU usage history for graphing (30 minutes, 15-second intervals).
+
+**Headers:** `Authorization: Bearer <token>`
+
+**Response (200):**
+```json
+{
+  "samples": [0, 1, 0, 2, 1, 0, 0, 1, ...],
+  "count": 120,
+  "interval_ms": 15000
+}
+```
+
+#### GET /api/network/history
+Get network bandwidth utilization history for graphing.
+
+**Headers:** `Authorization: Bearer <token>`
+
+**Response (200):**
+```json
+{
+  "samples": [0, 1, 2, 1, 0, ...],
+  "count": 120,
+  "interval_ms": 15000,
+  "link_speed_mbps": 100,
+  "channel": 0
+}
+```
+
+Note: `channel` is 0 for Ethernet, 1-13 for WiFi.
 
 #### GET /api/status
 Get complete system status.
@@ -568,10 +690,48 @@ Recommended: Use SD card for easy UI iteration during development.
 
 ### Network Traffic
 - Initial page load: ~200KB
-- Polling interval: 2 seconds
+- Polling interval: 2 seconds (adaptive with backoff)
 - Per-poll request: ~50 bytes
-- Per-poll response: ~2KB (status + sensors + relays)
+- Per-poll response: ~2KB (consolidated dashboard endpoint)
 - Bandwidth: ~1KB/s continuous
+
+## Connection Resilience
+
+The Admin UI includes automatic reconnection and failover recovery.
+
+### Exponential Backoff
+
+When API requests fail, the UI progressively slows down retries to avoid flooding the device:
+
+| Failure Count | Retry Interval | Cumulative Time |
+|---------------|----------------|-----------------|
+| 0 (success) | 2s | - |
+| 1 | 2s | 2s |
+| 2 | 3s | 5s |
+| 3 | 4.5s | 9.5s |
+| 4 | 6.75s | 16.25s |
+| 5+ | 10s (max) | 26.25s → reload |
+
+### Auto-Reload for Failover
+
+After 5 consecutive failures (~26 seconds), the page automatically reloads. This handles:
+
+- **Network failover** (WiFi ↔ Ethernet) where the device IP changes
+- **mDNS hostname resolution** which browsers may cache
+- **TLS session expiration** after extended disconnection
+
+The status badge shows reconnection progress:
+- 🟢 **Connected** - Normal operation
+- 🟡 **Reconnecting (N)...** - Attempting to reconnect (N = failure count)
+- 🔴 **Reloading...** - Page will reload to refresh DNS
+
+### TLS Session Management
+
+The ESP32 has limited TLS session capacity. The Admin UI:
+
+1. Uses a **consolidated `/api/dashboard` endpoint** to minimize requests
+2. Staggers initial requests on page load (1s delay between graph fetches)
+3. Maintains a single polling loop to avoid concurrent TLS handshakes
 
 ### Recommendations
 - Limit to 2-3 concurrent clients maximum

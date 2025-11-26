@@ -1,17 +1,143 @@
-# WiFi & NTP Module Documentation
+# WiFi, Ethernet & NTP Module Documentation
 
-WiFi connectivity, NTP time synchronization, and provisioning for the fermentation controller.
+WiFi connectivity, Ethernet (W5500 SPI), NTP time synchronization, and provisioning for the fermentation controller.
 
 ## Overview
 
-The WiFi system consists of four main components:
+The network system consists of five main components:
 
 | Module | File | Description |
 |--------|------|-------------|
 | WiFi HAL | `hal/esp32/esp32_wifi.h` | ESP-IDF WiFi implementation |
 | WiFi Module | `modules/wifi_module.h` | Connection manager with auto-reconnect |
+| Ethernet HAL | `hal/esp32/esp32_ethernet.h` | W5500 SPI Ethernet implementation |
 | NTP Module | `modules/ntp_module.h` | Time sync with timezone support |
 | Provisioning | `modules/wifi_provisioning.h` | SmartConfig + Captive Portal |
+
+## Ethernet Support (W5500 SPI)
+
+The controller supports Ethernet via the W5500 SPI interface on the Waveshare ESP32-S3-POE-ETH-8DI-8DO board.
+
+### Hardware Configuration
+
+| Signal | GPIO | Description |
+|--------|------|-------------|
+| MISO | 13 | SPI Master In Slave Out |
+| MOSI | 11 | SPI Master Out Slave In |
+| SCLK | 12 | SPI Clock |
+| CS | 10 | Chip Select |
+| INT | 14 | Interrupt (optional) |
+| RST | 21 | Reset |
+
+### Build Configuration
+
+In `platformio.ini`, Ethernet is enabled by default with `ETHERNET_ENABLED`:
+
+```ini
+[env:esp32_wifi]
+build_flags =
+    -DESP32_BUILD
+    -DHAL_ESP32
+    -DWIFI_NTP_ENABLED
+    -DETHERNET_ENABLED
+```
+
+### Usage
+
+Ethernet initializes automatically if enabled. The system uses DHCP to obtain an IP address.
+
+```cpp
+#include "hal/esp32/esp32_ethernet.h"
+
+hal::esp32::ESP32Ethernet g_ethernet;
+
+void app_main() {
+    if (g_ethernet.init()) {
+        // Wait for link
+        while (!g_ethernet.is_connected()) {
+            vTaskDelay(pdMS_TO_TICKS(100));
+        }
+
+        auto& info = g_ethernet.get_info();
+        printf("Ethernet IP: %s\n", info.ip);
+        printf("Link Speed: %d Mbps\n", info.link_speed_mbps);
+    }
+}
+```
+
+### Debug Console Commands
+
+```bash
+# Show Ethernet status
+> eth
+Ethernet Status:
+  Connected: YES
+  IP: 192.168.0.139
+  Netmask: 255.255.255.0
+  Gateway: 192.168.0.1
+  Speed: 100 Mbps
+```
+
+## Network Failover (WiFi Hot Standby)
+
+When both WiFi and Ethernet are connected to the same network (same gateway), the system automatically enters **failover mode**:
+
+1. **Ethernet becomes primary** - All network traffic uses Ethernet
+2. **WiFi enters Hot Standby** - Maintains connection but releases route priority
+3. **Automatic recovery** - If Ethernet fails, WiFi resumes immediately
+
+### How It Works
+
+```
+┌─────────────────────────────────────────────┐
+│         Both Interfaces Connected           │
+│    WiFi Gateway == Ethernet Gateway?        │
+└──────────────────┬──────────────────────────┘
+                   │
+         ┌─────────┴─────────┐
+         │ Yes               │ No
+         ▼                   ▼
+┌─────────────────┐   ┌─────────────────┐
+│ WiFi → Standby  │   │ Both Active     │
+│ Ethernet Primary│   │ (different nets)│
+└─────────────────┘   └─────────────────┘
+```
+
+### WiFi States
+
+| State | Description | Admin UI Badge |
+|-------|-------------|----------------|
+| Connected | Active connection, handling traffic | Green "Connected" |
+| Hot Standby | Connected but dormant (Ethernet primary) | Cyan "Hot Standby" |
+| Disconnected | No connection | Gray "Disconnected" |
+
+### Monitoring Failover
+
+In the Admin UI, the **Network Interfaces** section shows both interfaces:
+- WiFi shows "Hot Standby" badge (cyan) when Ethernet is primary
+- Network bandwidth graph samples from the active interface
+- Graph resets when switching interfaces to avoid misleading data
+
+### Debug Console Output
+
+```bash
+> status
+  WiFi .............. HOT STANDBY
+  Ethernet .......... OK (100 Mbps)
+```
+
+### Admin UI Auto-Reload
+
+When network failover occurs, the browser may cache the old IP/hostname. The Admin UI includes **automatic failover recovery**:
+
+| Parameter | Value | Description |
+|-----------|-------|-------------|
+| Base interval | 2s | Normal refresh rate |
+| Backoff multiplier | 1.5x | Progressive slowdown on failures |
+| Max interval | 10s | Maximum retry delay |
+| Reload threshold | 5 failures | Page reload to refresh DNS (~26s) |
+
+The UI shows "Reconnecting (N)..." during failures and automatically reloads to resolve DNS changes.
 
 ## Build Configuration
 

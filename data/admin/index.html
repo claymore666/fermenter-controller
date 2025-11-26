@@ -785,13 +785,14 @@
 
         let initialLoadComplete = false;
 
-        // Connection state for exponential backoff
+        // Connection state for exponential backoff with auto-reload
         const connectionState = {
             failureCount: 0,
             baseInterval: 2000,      // Normal refresh rate (2s)
             currentInterval: 2000,
-            maxInterval: 30000,      // Max 30 seconds between retries
-            backoffMultiplier: 2
+            maxInterval: 10000,      // Max 10 seconds between retries
+            backoffMultiplier: 1.5,  // Moderate backoff: 2s, 3s, 4.5s, 6.75s, 10s
+            reloadThreshold: 5       // Reload after 5 failures (~26s) to force DNS refresh
         };
 
         function updateConnectionInterval() {
@@ -799,7 +800,7 @@
                 connectionState.currentInterval = connectionState.baseInterval;
             } else {
                 const backoff = connectionState.baseInterval *
-                    Math.pow(connectionState.backoffMultiplier, connectionState.failureCount);
+                    Math.pow(connectionState.backoffMultiplier, connectionState.failureCount - 1);
                 connectionState.currentInterval = Math.min(backoff, connectionState.maxInterval);
             }
         }
@@ -896,14 +897,17 @@
                 updateConnectionInterval();
 
                 const statusEl = document.getElementById('connectionStatus');
-                if (connectionState.currentInterval >= connectionState.maxInterval) {
-                    statusEl.textContent = 'Offline';
+                if (connectionState.failureCount >= connectionState.reloadThreshold) {
+                    // Too many failures - reload page to force fresh DNS lookup (network failover)
+                    statusEl.textContent = 'Reloading...';
                     statusEl.className = 'nav-item badge bg-danger me-2';
+                    console.log('Connection lost, reloading for DNS refresh (network failover?)...');
+                    setTimeout(() => location.reload(), 500);
                 } else {
-                    statusEl.textContent = 'Reconnecting...';
+                    statusEl.textContent = 'Reconnecting (' + connectionState.failureCount + ')...';
                     statusEl.className = 'nav-item badge bg-warning me-2';
                 }
-                console.error('Refresh failed (retry in ' + (connectionState.currentInterval/1000) + 's):', err);
+                console.error('Refresh failed (' + connectionState.failureCount + '/' + connectionState.reloadThreshold + '):', err);
             }
         }
 
