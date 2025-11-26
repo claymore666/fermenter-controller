@@ -76,6 +76,7 @@ public:
         , echo_enabled_(true)
         , log_events_(false)
         , log_errors_(true)
+        , tls_debug_enabled_(false)
         , last_activity_ms_(0) {
         memset(cmd_buffer_, 0, sizeof(cmd_buffer_));
     }
@@ -158,6 +159,7 @@ private:
     bool echo_enabled_;
     bool log_events_;
     bool log_errors_;
+    bool tls_debug_enabled_;
     uint32_t last_activity_ms_;
 
     void print_welcome() {
@@ -257,6 +259,8 @@ private:
             cmd_heap();
         } else if (strcmp(args[0], "uptime") == 0) {
             cmd_uptime();
+        } else if (strcmp(args[0], "cpu") == 0) {
+            cmd_cpu();
         } else if (strcmp(args[0], "reboot") == 0) {
             cmd_reboot();
         } else if (strcmp(args[0], "shutdown") == 0) {
@@ -330,6 +334,8 @@ private:
         serial_->println("  wifi clear          - Clear credentials & provision");
         serial_->println("");
         serial_->println("  eth                 - Ethernet status");
+        serial_->println("  eth connect         - Start Ethernet interface");
+        serial_->println("  eth disconnect      - Stop Ethernet interface");
         serial_->println("");
         serial_->println("  can                 - CAN bus status");
         serial_->println("  can send <id> <data...> - Send CAN message");
@@ -342,6 +348,7 @@ private:
         serial_->println("");
         serial_->println("  ssl status          - SSL certificate status");
         serial_->println("  ssl clear           - Delete cert (regenerates on reboot)");
+        serial_->println("  ssl debug [on|off]  - Toggle TLS handshake messages");
         serial_->println("");
         serial_->println("  cpu                 - CPU usage percentage");
         serial_->println("  inputs              - Show digital inputs DI1-8");
@@ -461,8 +468,20 @@ private:
 #ifdef WIFI_NTP_ENABLED
         if (sys.wifi_rssi != 0) {
             printf("  WiFi .............. OK (%d dBm)\r\n", sys.wifi_rssi);
+            // Show WiFi IP
+            if (wifi_prov_) {
+                const char* ip = wifi_prov_->get_ip_address();
+                if (ip) {
+                    printf("    IP: %s\r\n", ip);
+                }
+            }
         } else if (wifi_prov_ && wifi_prov_->is_standby()) {
             serial_->println("  WiFi .............. HOT STANDBY");
+            // Show WiFi IP even in standby (IP is retained)
+            const char* ip = wifi_prov_->get_ip_address();
+            if (ip) {
+                printf("    IP: %s\r\n", ip);
+            }
         } else {
             serial_->println("  WiFi .............. DISCONNECTED");
         }
@@ -471,6 +490,22 @@ private:
         printf("  NTP ............... %s\r\n", sys.ntp_synced ? "SYNCED" : "NOT SYNCED");
 #else
         serial_->println("  WiFi .............. [not compiled]");
+#endif
+
+        // Ethernet
+#if defined(ESP32_BUILD) && defined(ETHERNET_ENABLED)
+        if (ethernet_) {
+            auto* eth = static_cast<hal::esp32::ESP32Ethernet*>(ethernet_);
+            if (eth->is_connected()) {
+                printf("  Ethernet .......... OK (%d Mbps)\r\n", eth->get_link_speed());
+                const char* ip = eth->get_ip_address();
+                if (ip) {
+                    printf("    IP: %s\r\n", ip);
+                }
+            } else {
+                serial_->println("  Ethernet .......... DISCONNECTED");
+            }
+        }
 #endif
 
         // MODBUS devices
@@ -841,6 +876,55 @@ private:
                (unsigned long)mins, (unsigned long)s);
     }
 
+    void cmd_cpu() {
+        auto& sys = state_->get_system_state();
+
+#ifdef ESP32_BUILD
+        // Get CPU frequency
+        printf("CPU Frequency: %lu MHz (max: %lu MHz)\r\n",
+               (unsigned long)sys.cpu_freq_mhz,
+               (unsigned long)sys.cpu_freq_max_mhz);
+
+#ifdef CONFIG_FREERTOS_USE_TRACE_FACILITY
+        // Calculate CPU usage from FreeRTOS runtime stats
+        uint32_t cpu_percent = 0;
+        TaskStatus_t* task_array;
+        UBaseType_t task_count = uxTaskGetNumberOfTasks();
+        uint32_t total_runtime;
+
+        task_array = (TaskStatus_t*)pvPortMalloc(task_count * sizeof(TaskStatus_t));
+        if (task_array) {
+            task_count = uxTaskGetSystemState(task_array, task_count, &total_runtime);
+            if (total_runtime > 0) {
+                uint32_t idle_runtime = 0;
+                for (UBaseType_t i = 0; i < task_count; i++) {
+                    if (strcmp(task_array[i].pcTaskName, "IDLE") == 0 ||
+                        strcmp(task_array[i].pcTaskName, "IDLE0") == 0 ||
+                        strcmp(task_array[i].pcTaskName, "IDLE1") == 0) {
+                        idle_runtime += task_array[i].ulRunTimeCounter;
+                    }
+                }
+                uint64_t idle_pct = (uint64_t)idle_runtime * 100ULL / total_runtime;
+                if (idle_pct <= 100) {
+                    cpu_percent = 100 - (uint32_t)idle_pct;
+                }
+            }
+            vPortFree(task_array);
+        }
+
+        printf("CPU Usage: %lu%%\r\n", (unsigned long)cpu_percent);
+        printf("Tasks: %lu\r\n", (unsigned long)task_count);
+#else
+        printf("CPU Usage: %.1f%% (from state manager)\r\n", sys.cpu_usage);
+#endif
+
+#else
+        // Simulator
+        printf("CPU Usage: %.1f%%\r\n", sys.cpu_usage);
+        printf("CPU Frequency: %lu MHz\r\n", (unsigned long)sys.cpu_freq_mhz);
+#endif
+    }
+
     void cmd_modules() {
         serial_->println("Compiled Modules:");
 
@@ -935,8 +1019,6 @@ private:
     }
 
     void cmd_eth(int argc, char** args) {
-        (void)argc;
-        (void)args;
 #if defined(ESP32_BUILD) && defined(ETHERNET_ENABLED)
         if (!ethernet_) {
             serial_->println("Ethernet not available");
@@ -945,6 +1027,29 @@ private:
 
         auto* eth = static_cast<hal::esp32::ESP32Ethernet*>(ethernet_);
 
+        if (argc >= 2) {
+            if (strcmp(args[1], "connect") == 0) {
+                serial_->println("Starting Ethernet...");
+                if (eth->start()) {
+                    serial_->println("Ethernet started. Waiting for DHCP...");
+                    if (eth->wait_for_connection(10000)) {
+                        printf("Connected! IP: %s\r\n", eth->get_ip_address());
+                    } else {
+                        serial_->println("Timeout waiting for DHCP. Check cable.");
+                    }
+                } else {
+                    serial_->println("Failed to start Ethernet");
+                }
+                return;
+            } else if (strcmp(args[1], "disconnect") == 0) {
+                serial_->println("Stopping Ethernet...");
+                eth->stop();
+                serial_->println("Ethernet stopped");
+                return;
+            }
+        }
+
+        // Default: show status
         serial_->println("Ethernet Status:");
         printf("  Connected: %s\r\n", eth->is_connected() ? "Yes" : "No");
 
@@ -961,7 +1066,12 @@ private:
         } else {
             serial_->println("  Waiting for link...");
         }
+
+        serial_->println("");
+        serial_->println("Commands: eth connect | eth disconnect");
 #else
+        (void)argc;
+        (void)args;
         serial_->println("Ethernet not enabled in this build");
 #endif
     }
@@ -1016,22 +1126,69 @@ private:
         if (argc < 2) {
             serial_->println("Usage:");
             serial_->println("  nvs list                    - Show namespaces");
+            serial_->println("  nvs list <namespace>        - Show keys in namespace");
             serial_->println("  nvs get <ns>:<key>          - Read value");
             serial_->println("  nvs set <ns>:<key> <value>  - Write value");
             serial_->println("  nvs erase <ns>:<key>        - Delete key");
             serial_->println("");
             serial_->println("Examples:");
+            serial_->println("  nvs list wifi");
             serial_->println("  nvs get wifi:ssid");
             serial_->println("  nvs set config:brightness 50");
             return;
         }
 
         if (strcmp(args[1], "list") == 0) {
-            serial_->println("NVS namespaces:");
-            serial_->println("  wifi - WiFi credentials (ssid, password, auto_connect)");
-            serial_->println("  config - System configuration");
-            serial_->println("  fermenter - Fermentation plans & PID");
-            serial_->println("  calibration - Sensor calibration");
+            if (argc >= 3) {
+                // List keys in specific namespace: nvs list <namespace>
+                const char* ns = args[2];
+                printf("Keys in namespace '%s':\r\n", ns);
+
+                nvs_iterator_t it = nullptr;
+                esp_err_t err = nvs_entry_find("nvs", ns, NVS_TYPE_ANY, &it);
+                if (err == ESP_ERR_NVS_NOT_FOUND || it == nullptr) {
+                    printf("  (no keys found or namespace doesn't exist)\r\n");
+                } else {
+                    int count = 0;
+                    while (err == ESP_OK && it != nullptr) {
+                        nvs_entry_info_t info;
+                        nvs_entry_info(it, &info);
+
+                        const char* type_str = "?";
+                        switch (info.type) {
+                            case NVS_TYPE_U8:  type_str = "u8"; break;
+                            case NVS_TYPE_I8:  type_str = "i8"; break;
+                            case NVS_TYPE_U16: type_str = "u16"; break;
+                            case NVS_TYPE_I16: type_str = "i16"; break;
+                            case NVS_TYPE_U32: type_str = "u32"; break;
+                            case NVS_TYPE_I32: type_str = "i32"; break;
+                            case NVS_TYPE_U64: type_str = "u64"; break;
+                            case NVS_TYPE_I64: type_str = "i64"; break;
+                            case NVS_TYPE_STR: type_str = "string"; break;
+                            case NVS_TYPE_BLOB: type_str = "blob"; break;
+                            default: type_str = "unknown"; break;
+                        }
+                        printf("  %s (%s)\r\n", info.key, type_str);
+                        count++;
+
+                        err = nvs_entry_next(&it);
+                    }
+                    if (count == 0) {
+                        serial_->println("  (empty)");
+                    }
+                }
+                if (it != nullptr) {
+                    nvs_release_iterator(it);
+                }
+            } else {
+                // List namespaces (known ones)
+                serial_->println("NVS namespaces:");
+                serial_->println("  wifi       - WiFi credentials");
+                serial_->println("  fermenter  - SSL certs, auth, plans");
+                serial_->println("  nvs.net80211 - WiFi driver state");
+                serial_->println("");
+                serial_->println("Use 'nvs list <namespace>' to show keys");
+            }
         } else if (strcmp(args[1], "get") == 0) {
             if (argc < 3) {
                 serial_->println("Usage: nvs get <namespace>:<key>");
@@ -1373,9 +1530,10 @@ private:
 
     void cmd_ssl(int argc, char** args) {
         if (argc < 2) {
-            serial_->println("SSL Certificate Commands:");
-            serial_->println("  ssl status  - Show certificate status");
-            serial_->println("  ssl clear   - Delete stored certificate");
+            serial_->println("SSL/TLS Commands:");
+            serial_->println("  ssl status      - Show certificate status");
+            serial_->println("  ssl clear       - Delete stored certificate");
+            serial_->println("  ssl debug [on|off] - Toggle TLS handshake messages");
             return;
         }
 
@@ -1397,6 +1555,7 @@ private:
             } else {
                 serial_->println("Certificate: not stored");
             }
+            printf("TLS debug output: %s\r\n", tls_debug_enabled_ ? "enabled" : "disabled");
 #else
             serial_->println("Not available in simulator");
 #endif
@@ -1417,8 +1576,34 @@ private:
 #else
             serial_->println("Not available in simulator");
 #endif
+        } else if (strcmp(args[1], "debug") == 0) {
+#ifdef ESP32_BUILD
+            if (argc >= 3) {
+                if (strcmp(args[2], "on") == 0) {
+                    tls_debug_enabled_ = true;
+                    esp_log_level_set("esp-tls", ESP_LOG_INFO);
+                    esp_log_level_set("esp_tls_mbedtls", ESP_LOG_INFO);
+                    esp_log_level_set("esp-tls-mbedtls", ESP_LOG_INFO);
+                    esp_log_level_set("mbedtls", ESP_LOG_INFO);
+                    serial_->println("TLS debug output: enabled");
+                } else if (strcmp(args[2], "off") == 0) {
+                    tls_debug_enabled_ = false;
+                    esp_log_level_set("esp-tls", ESP_LOG_WARN);
+                    esp_log_level_set("esp_tls_mbedtls", ESP_LOG_WARN);
+                    esp_log_level_set("esp-tls-mbedtls", ESP_LOG_WARN);
+                    esp_log_level_set("mbedtls", ESP_LOG_WARN);
+                    serial_->println("TLS debug output: disabled");
+                } else {
+                    serial_->println("Usage: ssl debug [on|off]");
+                }
+            } else {
+                printf("TLS debug output: %s\r\n", tls_debug_enabled_ ? "enabled" : "disabled");
+            }
+#else
+            serial_->println("Not available in simulator");
+#endif
         } else {
-            serial_->println("Unknown ssl subcommand. Use: ssl status | ssl clear");
+            serial_->println("Unknown ssl subcommand. Use: ssl status | ssl clear | ssl debug");
         }
     }
 
