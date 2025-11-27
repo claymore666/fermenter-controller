@@ -10,6 +10,7 @@
 #ifdef ESP32_BUILD
 #include "esp_http_server.h"
 #include "esp_log.h"
+#include "esp_timer.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/semphr.h"
 #endif
@@ -199,6 +200,55 @@ public:
             if (clients_[i].active && clients_[i].authenticated) count++;
         }
         return count;
+    }
+
+    /**
+     * Get maximum number of clients supported
+     */
+    int get_max_clients() const {
+        return MAX_WS_CLIENTS;
+    }
+
+    /**
+     * Check if WebSocket manager is initialized
+     */
+    bool is_initialized() const {
+        return initialized_;
+    }
+
+    /**
+     * Print connected clients info via callback
+     */
+    template<typename F>
+    void print_clients(F callback) const {
+        char buf[128];
+#ifdef ESP32_BUILD
+        uint32_t now = (uint32_t)(esp_timer_get_time() / 1000);
+#else
+        uint32_t now = 0;
+#endif
+        for (int i = 0; i < MAX_WS_CLIENTS; i++) {
+            if (clients_[i].active && clients_[i].authenticated) {
+                uint32_t age_ms = now - clients_[i].last_activity;
+                snprintf(buf, sizeof(buf), "[%d] fd=%d session=%.8s... last=%lums",
+                         i, clients_[i].fd, clients_[i].session_token, (unsigned long)age_ms);
+                callback(buf);
+            }
+        }
+    }
+
+    /**
+     * Broadcast a text message to all authenticated clients
+     */
+    void broadcast_text(const char* message) {
+        if (!initialized_ || !message) return;
+        lock();
+        for (int i = 0; i < MAX_WS_CLIENTS; i++) {
+            if (clients_[i].active && clients_[i].authenticated) {
+                send_text(clients_[i].fd, clients_[i].handle, message);
+            }
+        }
+        unlock();
     }
 
     /**

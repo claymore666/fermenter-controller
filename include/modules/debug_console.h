@@ -28,6 +28,9 @@
 #ifdef ETHERNET_ENABLED
 #include "hal/esp32/esp32_ethernet.h"
 #endif
+#ifdef WEBSOCKET_ENABLED
+#include "modules/http_server.h"
+#endif
 #endif
 
 // Version info
@@ -72,6 +75,7 @@ public:
         , can_module_(can_module)
         , status_led_(status_led)
         , ethernet_(ethernet)
+        , http_server_(nullptr)
         , cmd_index_(0)
         , echo_enabled_(true)
         , log_events_(false)
@@ -88,6 +92,13 @@ public:
     void initialize(uint32_t baud = 115200) {
         serial_->begin(baud);
         print_welcome();
+    }
+
+    /**
+     * Set HTTP server reference for WebSocket commands
+     */
+    void set_http_server(void* http_server) {
+        http_server_ = http_server;
     }
 
     /**
@@ -153,6 +164,7 @@ private:
     void* can_module_;  // CANModule* when CAN_ENABLED
     StatusLed* status_led_;
     void* ethernet_;    // ESP32Ethernet* when ETHERNET_ENABLED
+    void* http_server_; // HttpServer* when HTTP_ENABLED
 
     char cmd_buffer_[MAX_CMD_LENGTH];
     size_t cmd_index_;
@@ -293,6 +305,8 @@ private:
             cmd_log(argc, args);
         } else if (strcmp(args[0], "ssl") == 0) {
             cmd_ssl(argc, args);
+        } else if (strcmp(args[0], "ws") == 0) {
+            cmd_ws(argc, args);
         } else {
             printf("Unknown command: %s\r\n", args[0]);
             serial_->println("Type 'help' for available commands");
@@ -350,6 +364,10 @@ private:
         serial_->println("  ssl status          - SSL certificate status");
         serial_->println("  ssl clear           - Delete cert (regenerates on reboot)");
         serial_->println("  ssl debug [on|off]  - Toggle TLS handshake messages");
+        serial_->println("");
+        serial_->println("  ws                  - WebSocket status");
+        serial_->println("  ws clients          - List connected clients");
+        serial_->println("  ws broadcast <msg>  - Send message to all clients");
         serial_->println("");
         serial_->println("  cpu                 - CPU usage percentage");
         serial_->println("  inputs              - Show digital inputs DI1-8");
@@ -1668,6 +1686,69 @@ private:
         } else {
             serial_->println("Unknown ssl subcommand. Use: ssl status | ssl clear | ssl debug");
         }
+    }
+
+    void cmd_ws(int argc, char** args) {
+#if defined(ESP32_BUILD) && defined(WEBSOCKET_ENABLED)
+        if (!http_server_) {
+            serial_->println("HTTP server not available");
+            return;
+        }
+
+        auto* http = static_cast<HttpServer*>(http_server_);
+        auto* ws_mgr = http->get_ws_manager();
+
+        if (!ws_mgr) {
+            serial_->println("WebSocket not enabled");
+            return;
+        }
+
+        if (argc < 2) {
+            // Show status
+            serial_->println("WebSocket Status:");
+            printf("  Enabled: Yes\r\n");
+            printf("  Clients: %d/%d\r\n", ws_mgr->get_client_count(), ws_mgr->get_max_clients());
+            printf("  Initialized: %s\r\n", ws_mgr->is_initialized() ? "Yes" : "No");
+            return;
+        }
+
+        if (strcmp(args[1], "clients") == 0) {
+            int count = ws_mgr->get_client_count();
+            if (count == 0) {
+                serial_->println("No connected clients");
+                return;
+            }
+            printf("Connected clients (%d):\r\n", count);
+            ws_mgr->print_clients([](const char* line) {
+                ::printf("  %s\r\n", line);
+            });
+        } else if (strcmp(args[1], "broadcast") == 0) {
+            if (argc < 3) {
+                serial_->println("Usage: ws broadcast <message>");
+                return;
+            }
+            // Join remaining args into message
+            char msg[256] = {0};
+            int pos = 0;
+            for (int i = 2; i < argc && pos < 250; i++) {
+                if (i > 2) msg[pos++] = ' ';
+                int len = strlen(args[i]);
+                if (pos + len < 250) {
+                    strcpy(msg + pos, args[i]);
+                    pos += len;
+                }
+            }
+            ws_mgr->broadcast_text(msg);
+            printf("Broadcast sent: %s\r\n", msg);
+        } else {
+            serial_->println("WebSocket Commands:");
+            serial_->println("  ws              - Show WebSocket status");
+            serial_->println("  ws clients      - List connected clients");
+            serial_->println("  ws broadcast <msg> - Send message to all clients");
+        }
+#else
+        serial_->println("WebSocket not available (requires ESP32 + WEBSOCKET_ENABLED)");
+#endif
     }
 
     // Public logging methods for other modules to call

@@ -532,6 +532,9 @@ bool system_init(bool config_loaded = false) {
 #endif
     );
     g_debug_console->initialize(115200);
+#ifdef HTTP_ENABLED
+    g_debug_console->set_http_server(g_http_server);
+#endif
 #endif
 
     return true;
