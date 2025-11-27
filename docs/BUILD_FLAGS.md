@@ -11,6 +11,7 @@ Compile-time flags to enable/disable features and reduce firmware size.
 | `HTTP_ENABLED` | HTTP server + REST API | `WIFI_NTP_ENABLED` |
 | `WEBSOCKET_ENABLED` | WebSocket real-time push updates | `HTTP_ENABLED` |
 | `CERT_GENERATION_ENABLED` | Per-device SSL certificate generation | `HTTP_ENABLED` |
+| `OTA_ENABLED` | Over-the-air firmware updates | `HTTP_ENABLED` |
 | `MQTT_ENABLED` | MQTT client for telemetry/control | `WIFI_NTP_ENABLED` |
 | `CAN_ENABLED` | CAN bus communication (TWAI) | - |
 | `DEBUG_CONSOLE_ENABLED` | USB serial debug console | - |
@@ -88,6 +89,14 @@ WEBSOCKET_ENABLED (requires HTTP_ENABLED)
 ├── Up to 4 concurrent clients
 └── ~20KB RAM per client (includes TLS buffers)
 
+OTA_ENABLED (requires HTTP_ENABLED)
+├── Dual OTA partitions (app0/app1, 4MB each)
+├── Upload firmware via REST API
+├── Download firmware from URL (GitHub pull)
+├── Automatic rollback on boot failure
+├── System pause during update
+└── See docs/OTA_UPDATES.md
+
 MQTT_ENABLED (requires WIFI_NTP_ENABLED)
 ├── MQTT client
 ├── Telemetry publishing
@@ -134,6 +143,11 @@ ETHERNET_ENABLED
 // WebSocket real-time updates
 #endif
 
+#ifdef OTA_ENABLED
+#include "modules/ota_manager.h"
+// OTA firmware updates
+#endif
+
 #ifdef MQTT_ENABLED
 #include "modules/mqtt_client.h"
 // MQTT code
@@ -170,6 +184,7 @@ The REST API module is **only compiled when `HTTP_ENABLED` is defined**. This re
 | `CAN_ENABLED` | Implemented |
 | `HTTP_ENABLED` | Implemented (REST API + admin web interface) |
 | `WEBSOCKET_ENABLED` | Implemented (real-time push updates) |
+| `OTA_ENABLED` | Implemented (upload, GitHub pull, rollback) |
 | `MQTT_ENABLED` | Not implemented |
 
 ### WiFi/NTP Implementation Details

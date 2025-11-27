@@ -141,6 +141,11 @@ static hal::esp32::ESP32Ethernet* g_ethernet = nullptr;
 static HttpServer* g_http_server = nullptr;
 #endif
 
+#ifdef OTA_ENABLED
+// Flag to pause control loop during OTA
+static volatile bool g_ota_active = false;
+#endif
+
 /**
  * Cleanup allocated modules on init failure or shutdown
  * Prevents memory leaks if initialization fails partway through
@@ -172,6 +177,28 @@ void cleanup_modules() {
     if (g_plan_manager) { delete g_plan_manager; g_plan_manager = nullptr; }
     if (g_modbus_module) { delete g_modbus_module; g_modbus_module = nullptr; }
 }
+
+// ============================================================================
+// OTA System Pause Callback
+// ============================================================================
+#ifdef OTA_ENABLED
+/**
+ * Callback to pause/resume system during OTA updates
+ * When OTA starts: pause MODBUS polling, PID control, sensor updates
+ * When OTA ends: resume normal operation (or reboot after successful OTA)
+ */
+static void on_ota_system_pause(bool pause) {
+    g_ota_active = pause;
+#ifdef ESP32_BUILD
+    if (pause) {
+        ESP_LOGI("OTA", "Pausing system for OTA update");
+        // WebSocket clients will timeout during OTA and reconnect after reboot
+    } else {
+        ESP_LOGI("OTA", "Resuming system after OTA");
+    }
+#endif
+}
+#endif // OTA_ENABLED
 
 // ============================================================================
 // Network Failover Manager
@@ -482,6 +509,10 @@ bool system_init(bool config_loaded = false) {
             // HTTPS will be enabled once TLS issues are resolved
             if (g_http_server->start_with_background_https(80)) {
                 printf("HTTP server started on port 80 (cert gen in background)\n");
+#ifdef OTA_ENABLED
+                // Wire up OTA system pause callback
+                g_http_server->set_ota_system_callback(on_ota_system_pause);
+#endif
             } else {
                 printf("WARNING: HTTP server failed to start\n");
             }
@@ -546,6 +577,18 @@ bool system_init(bool config_loaded = false) {
 void control_loop() {
 #ifdef ESP32_BUILD
     uint64_t loop_start_us = esp_timer_get_time();
+#endif
+
+#ifdef OTA_ENABLED
+    // Skip control operations during OTA update
+    if (g_ota_active) {
+        // Only update minimal state during OTA
+        g_state.update_system_uptime(g_time.millis() / 1000);
+#ifdef ESP32_BUILD
+        g_state.update_free_heap(esp_get_free_heap_size());
+#endif
+        return;
+    }
 #endif
 
     // 1. Poll MODBUS sensors

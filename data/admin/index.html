@@ -476,6 +476,87 @@
                     <!-- Settings Panel -->
                     <div id="panel-settings" class="panel" style="display: none;">
                         <h4>Settings</h4>
+
+                        <!-- Firmware Update Section -->
+                        <div class="row mb-4">
+                            <div class="col-12">
+                                <div class="card">
+                                    <div class="card-header">
+                                        <i class="bi bi-cloud-arrow-up"></i> Firmware Update
+                                    </div>
+                                    <div class="card-body">
+                                        <div class="row">
+                                            <!-- Current Firmware Info -->
+                                            <div class="col-md-4">
+                                                <h6 class="text-muted">Current Firmware</h6>
+                                                <table class="table table-sm table-borderless mb-0">
+                                                    <tr><td class="text-muted" style="width: 100px;">Version</td><td id="fw-version">--</td></tr>
+                                                    <tr><td class="text-muted">Partition</td><td id="fw-partition">--</td></tr>
+                                                    <tr><td class="text-muted">Size</td><td id="fw-size">--</td></tr>
+                                                    <tr><td class="text-muted">Status</td><td id="fw-status"><span class="badge bg-secondary">Unknown</span></td></tr>
+                                                </table>
+                                            </div>
+
+                                            <!-- Upload Firmware -->
+                                            <div class="col-md-4">
+                                                <h6 class="text-muted">Upload Firmware</h6>
+                                                <div class="mb-3">
+                                                    <input type="file" class="form-control form-control-sm" id="firmware-file" accept=".bin">
+                                                </div>
+                                                <button class="btn btn-primary btn-sm w-100" onclick="uploadFirmware()" id="upload-btn">
+                                                    <i class="bi bi-upload"></i> Upload &amp; Install
+                                                </button>
+                                                <div id="upload-progress" class="mt-2" style="display: none;">
+                                                    <div class="progress" style="height: 20px;">
+                                                        <div id="upload-progress-bar" class="progress-bar progress-bar-striped progress-bar-animated" role="progressbar" style="width: 0%">0%</div>
+                                                    </div>
+                                                    <small id="upload-status" class="text-muted">Uploading...</small>
+                                                </div>
+                                            </div>
+
+                                            <!-- Download from GitHub -->
+                                            <div class="col-md-4">
+                                                <h6 class="text-muted">Download from GitHub</h6>
+                                                <div class="mb-3">
+                                                    <input type="text" class="form-control form-control-sm" id="firmware-url"
+                                                        placeholder="Leave empty for default OTA branch"
+                                                        title="Default: GitHub OTA branch">
+                                                </div>
+                                                <button class="btn btn-info btn-sm w-100" onclick="downloadFirmware()" id="download-btn">
+                                                    <i class="bi bi-cloud-download"></i> Download &amp; Install
+                                                </button>
+                                            </div>
+                                        </div>
+
+                                        <!-- Confirm/Rollback Section (shown after OTA) -->
+                                        <div id="ota-confirm-section" class="row mt-3" style="display: none;">
+                                            <div class="col-12">
+                                                <div class="alert alert-warning mb-0">
+                                                    <div class="d-flex align-items-center justify-content-between">
+                                                        <div>
+                                                            <i class="bi bi-exclamation-triangle"></i>
+                                                            <strong>New firmware installed!</strong> Confirm to keep or rollback to previous version.
+                                                        </div>
+                                                        <div>
+                                                            <button class="btn btn-success btn-sm me-2" onclick="confirmFirmware()">
+                                                                <i class="bi bi-check-lg"></i> Confirm
+                                                            </button>
+                                                            <button class="btn btn-danger btn-sm" onclick="rollbackFirmware()">
+                                                                <i class="bi bi-arrow-counterclockwise"></i> Rollback
+                                                            </button>
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        </div>
+
+                                        <!-- OTA Result Message -->
+                                        <div id="ota-result" class="mt-3" style="display: none;"></div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
                         <div class="row">
                             <div class="col-md-6">
                                 <div class="card">
@@ -645,6 +726,11 @@
 
                     document.querySelectorAll('.panel').forEach(p => p.style.display = 'none');
                     document.getElementById('panel-' + e.target.dataset.target).style.display = 'block';
+
+                    // Load firmware info when settings panel is shown
+                    if (e.target.dataset.target === 'settings') {
+                        refreshFirmwareInfo();
+                    }
                 });
             });
 
@@ -1701,6 +1787,184 @@
             } catch (err) {
                 alert('Factory reset failed: ' + err.message);
             }
+        }
+
+        // OTA Firmware Update Functions
+        async function refreshFirmwareInfo() {
+            try {
+                const data = await api('/firmware/info');
+                document.getElementById('fw-version').textContent = data.version || '--';
+                document.getElementById('fw-partition').textContent = data.running_partition || '--';
+                document.getElementById('fw-size').textContent = data.firmware_size ?
+                    (data.firmware_size / 1024).toFixed(0) + ' KB' : '--';
+
+                const statusEl = document.getElementById('fw-status');
+                if (data.pending_verify) {
+                    statusEl.innerHTML = '<span class="badge bg-warning">Pending Verification</span>';
+                    document.getElementById('ota-confirm-section').style.display = 'block';
+                } else {
+                    statusEl.innerHTML = '<span class="badge bg-success">Verified</span>';
+                    document.getElementById('ota-confirm-section').style.display = 'none';
+                }
+            } catch (err) {
+                console.error('Failed to fetch firmware info:', err);
+            }
+        }
+
+        async function uploadFirmware() {
+            const fileInput = document.getElementById('firmware-file');
+            const file = fileInput.files[0];
+            if (!file) {
+                showOtaResult('Please select a firmware file', 'danger');
+                return;
+            }
+
+            if (!file.name.endsWith('.bin')) {
+                showOtaResult('Invalid file type. Please select a .bin file', 'danger');
+                return;
+            }
+
+            if (!confirm('This will upload and install new firmware. The device will reboot after installation.\n\nContinue?')) {
+                return;
+            }
+
+            const uploadBtn = document.getElementById('upload-btn');
+            const progressDiv = document.getElementById('upload-progress');
+            const progressBar = document.getElementById('upload-progress-bar');
+            const statusText = document.getElementById('upload-status');
+
+            uploadBtn.disabled = true;
+            progressDiv.style.display = 'block';
+            progressBar.style.width = '0%';
+            progressBar.textContent = '0%';
+            statusText.textContent = 'Starting upload...';
+
+            try {
+                // Upload using fetch with progress simulation
+                const formData = new FormData();
+                formData.append('firmware', file);
+
+                // Use XMLHttpRequest for progress tracking
+                const xhr = new XMLHttpRequest();
+                xhr.open('POST', API_BASE + '/firmware/upload', true);
+                xhr.setRequestHeader('Authorization', 'Bearer ' + authToken);
+
+                xhr.upload.onprogress = (e) => {
+                    if (e.lengthComputable) {
+                        const percent = Math.round((e.loaded / e.total) * 100);
+                        progressBar.style.width = percent + '%';
+                        progressBar.textContent = percent + '%';
+                        statusText.textContent = 'Uploading... ' + (e.loaded / 1024).toFixed(0) + ' KB / ' + (e.total / 1024).toFixed(0) + ' KB';
+                    }
+                };
+
+                xhr.onload = () => {
+                    progressDiv.style.display = 'none';
+                    uploadBtn.disabled = false;
+
+                    if (xhr.status === 200) {
+                        const data = JSON.parse(xhr.responseText);
+                        if (data.success) {
+                            showOtaResult('Firmware uploaded successfully! Device will reboot...', 'success');
+                            setTimeout(() => {
+                                showOtaResult('Reconnecting after reboot...', 'info');
+                                setTimeout(() => location.reload(), 10000);
+                            }, 3000);
+                        } else {
+                            showOtaResult(data.message || 'Upload failed', 'danger');
+                        }
+                    } else {
+                        showOtaResult('Upload failed: HTTP ' + xhr.status, 'danger');
+                    }
+                };
+
+                xhr.onerror = () => {
+                    progressDiv.style.display = 'none';
+                    uploadBtn.disabled = false;
+                    showOtaResult('Upload failed: Network error', 'danger');
+                };
+
+                xhr.send(file);  // Send raw binary
+            } catch (err) {
+                progressDiv.style.display = 'none';
+                uploadBtn.disabled = false;
+                showOtaResult('Upload failed: ' + err.message, 'danger');
+            }
+        }
+
+        async function downloadFirmware() {
+            const urlInput = document.getElementById('firmware-url');
+            const url = urlInput.value.trim();
+
+            if (!confirm('This will download and install firmware from ' + (url || 'the default GitHub OTA branch') + '.\n\nThe device will reboot after installation. Continue?')) {
+                return;
+            }
+
+            const downloadBtn = document.getElementById('download-btn');
+            downloadBtn.disabled = true;
+            showOtaResult('Downloading firmware...', 'info');
+
+            try {
+                const body = url ? { url: url } : {};
+                const data = await api('/firmware/download', {
+                    method: 'POST',
+                    body: JSON.stringify(body)
+                });
+
+                if (data.success) {
+                    showOtaResult('Firmware downloaded and installed! Device will reboot...', 'success');
+                    setTimeout(() => {
+                        showOtaResult('Reconnecting after reboot...', 'info');
+                        setTimeout(() => location.reload(), 10000);
+                    }, 3000);
+                } else {
+                    showOtaResult(data.message || 'Download failed', 'danger');
+                }
+            } catch (err) {
+                showOtaResult('Download failed: ' + err.message, 'danger');
+            } finally {
+                downloadBtn.disabled = false;
+            }
+        }
+
+        async function confirmFirmware() {
+            try {
+                const data = await api('/firmware/confirm', { method: 'POST' });
+                if (data.success) {
+                    showOtaResult('Firmware confirmed!', 'success');
+                    document.getElementById('ota-confirm-section').style.display = 'none';
+                    refreshFirmwareInfo();
+                } else {
+                    showOtaResult(data.message || 'Confirmation failed', 'danger');
+                }
+            } catch (err) {
+                showOtaResult('Confirmation failed: ' + err.message, 'danger');
+            }
+        }
+
+        async function rollbackFirmware() {
+            if (!confirm('This will rollback to the previous firmware version and reboot.\n\nContinue?')) {
+                return;
+            }
+
+            try {
+                const data = await api('/firmware/rollback', { method: 'POST' });
+                if (data.success) {
+                    showOtaResult('Rolling back... Device will reboot.', 'warning');
+                    setTimeout(() => location.reload(), 5000);
+                } else {
+                    showOtaResult(data.message || 'Rollback failed', 'danger');
+                }
+            } catch (err) {
+                showOtaResult('Rollback failed: ' + err.message, 'danger');
+            }
+        }
+
+        function showOtaResult(message, type) {
+            const resultDiv = document.getElementById('ota-result');
+            resultDiv.className = 'alert alert-' + type + ' mt-3';
+            resultDiv.textContent = message;
+            resultDiv.style.display = 'block';
         }
 
         // CPU History Graph
