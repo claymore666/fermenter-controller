@@ -431,3 +431,4 @@ The boot verification script looks for these in serial output:
 | `Guru Meditation` | **CRASH** - boot failed |
 | `panic` | **CRASH** - boot failed |
 | `watchdog` | **TIMEOUT** - possible hang |
+- remember that we have a sdkconfig of our own not a default from platformio

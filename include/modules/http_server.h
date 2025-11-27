@@ -27,6 +27,10 @@
 #include "hal/esp32/esp32_ethernet.h"
 #endif
 
+#ifdef WEBSOCKET_ENABLED
+#include "modules/websocket_manager.h"
+#endif
+
 #ifdef ESP32_BUILD
 #include "esp_https_server.h"
 #include "esp_log.h"
@@ -108,6 +112,9 @@ public:
 #ifdef CAN_ENABLED
         , can_module_(nullptr)
 #endif
+#ifdef WEBSOCKET_ENABLED
+        , ws_manager_(nullptr)
+#endif
         , running_(false)
         , provisioned_(false) {
         memset(admin_password_hash_, 0, sizeof(admin_password_hash_));
@@ -128,6 +135,10 @@ public:
 
 #ifdef CAN_ENABLED
     void set_can_module(void* can) { can_module_ = can; }
+#endif
+
+#ifdef WEBSOCKET_ENABLED
+    WebSocketManager* get_ws_manager() { return ws_manager_; }
 #endif
 
 #ifdef ESP32_BUILD
@@ -214,6 +225,28 @@ public:
         // Register URI handlers
         register_handlers();
 
+#ifdef WEBSOCKET_ENABLED
+        // Initialize WebSocket manager
+        ws_manager_ = new WebSocketManager();
+        if (ws_manager_) {
+            if (ws_manager_->initialize(server_, state_, events_)) {
+                // Set session validator callback
+                ws_manager_->set_session_validator(
+                    [](const char* token, void* ctx) -> bool {
+                        HttpServer* self = static_cast<HttpServer*>(ctx);
+                        return self && self->is_authenticated(token);
+                    },
+                    this
+                );
+                ESP_LOGI("HTTP", "WebSocket manager initialized");
+            } else {
+                ESP_LOGW("HTTP", "WebSocket manager initialization failed");
+                delete ws_manager_;
+                ws_manager_ = nullptr;
+            }
+        }
+#endif
+
         running_ = true;
         ESP_LOGI("HTTP", "Server started successfully");
         return true;
@@ -224,6 +257,14 @@ public:
      */
     void stop() {
         if (!running_) return;
+
+#ifdef WEBSOCKET_ENABLED
+        if (ws_manager_) {
+            ws_manager_->stop();
+            delete ws_manager_;
+            ws_manager_ = nullptr;
+        }
+#endif
 
         if (http_redirect_server_) {
             httpd_stop(http_redirect_server_);
@@ -468,6 +509,19 @@ public:
             return 200;
         }
 
+        // Feature info (no auth - needed for WebSocket detection)
+        if (strcmp(path, "/api/info") == 0 && strcmp(method, "GET") == 0) {
+#ifdef WEBSOCKET_ENABLED
+            bool ws_available = (ws_manager_ != nullptr);
+#else
+            bool ws_available = false;
+#endif
+            snprintf(response, response_size,
+                     "{\"version\":\"%s\",\"websocket\":%s}",
+                     FIRMWARE_VERSION, ws_available ? "true" : "false");
+            return 200;
+        }
+
         // SSL certificate status (no auth)
         if (strcmp(path, "/api/ssl/status") == 0 && strcmp(method, "GET") == 0) {
 #ifdef ESP32_BUILD
@@ -628,6 +682,9 @@ private:
 #endif
 #ifdef CAN_ENABLED
     void* can_module_;
+#endif
+#ifdef WEBSOCKET_ENABLED
+    WebSocketManager* ws_manager_;
 #endif
 
     char admin_password_hash_[security::PASSWORD_HASH_BUF_SIZE];
@@ -828,7 +885,32 @@ private:
             return;
         }
 
-        // Register all handlers on HTTPS server
+#ifdef WEBSOCKET_ENABLED
+        // Initialize WebSocket manager BEFORE other handlers (to register /ws before wildcard /*)
+        ESP_LOGI("HTTP", "WEBSOCKET_ENABLED is defined - initializing WebSocket");
+        ws_manager_ = new WebSocketManager();
+        if (ws_manager_) {
+            if (ws_manager_->initialize(server_, state_, events_)) {
+                // Set session validator callback
+                ws_manager_->set_session_validator(
+                    [](const char* token, void* ctx) -> bool {
+                        HttpServer* self = static_cast<HttpServer*>(ctx);
+                        return self && self->is_authenticated(token);
+                    },
+                    this
+                );
+                ESP_LOGI("HTTP", "WebSocket manager initialized");
+            } else {
+                ESP_LOGW("HTTP", "WebSocket manager initialization failed");
+                delete ws_manager_;
+                ws_manager_ = nullptr;
+            }
+        }
+#else
+        ESP_LOGI("HTTP", "WEBSOCKET_ENABLED not defined - WebSocket disabled");
+#endif
+
+        // Register all handlers on HTTPS server (after WebSocket to avoid wildcard conflict)
         register_handlers_on_server(server_);
 
         ESP_LOGI("HTTP", "HTTPS server started on port 443");
@@ -986,6 +1068,7 @@ public:
         httpd_uri_t api_password = { .uri = "/api/password", .method = HTTP_POST, .handler = api_handler, .user_ctx = this };
         httpd_uri_t api_factory_reset = { .uri = "/api/factory_reset", .method = HTTP_POST, .handler = api_handler, .user_ctx = this };
         httpd_uri_t api_health = { .uri = "/api/health", .method = HTTP_GET, .handler = api_handler, .user_ctx = this };
+        httpd_uri_t api_info = { .uri = "/api/info", .method = HTTP_GET, .handler = api_handler, .user_ctx = this };
         httpd_uri_t api_ssl_status = { .uri = "/api/ssl/status", .method = HTTP_GET, .handler = api_handler, .user_ctx = this };
         httpd_uri_t api_status = { .uri = "/api/status", .method = HTTP_GET, .handler = api_handler, .user_ctx = this };
         httpd_uri_t api_sensors = { .uri = "/api/sensors", .method = HTTP_GET, .handler = api_handler, .user_ctx = this };
@@ -1022,6 +1105,7 @@ public:
         httpd_register_uri_handler(server, &api_password);
         httpd_register_uri_handler(server, &api_factory_reset);
         httpd_register_uri_handler(server, &api_health);
+        httpd_register_uri_handler(server, &api_info);
         httpd_register_uri_handler(server, &api_ssl_status);
         httpd_register_uri_handler(server, &api_status);
         httpd_register_uri_handler(server, &api_sensors);
@@ -1095,6 +1179,7 @@ public:
         httpd_uri_t api_password = { .uri = "/api/password", .method = HTTP_POST, .handler = api_handler, .user_ctx = this };
         httpd_uri_t api_factory_reset = { .uri = "/api/factory_reset", .method = HTTP_POST, .handler = api_handler, .user_ctx = this };
         httpd_uri_t api_health = { .uri = "/api/health", .method = HTTP_GET, .handler = api_handler, .user_ctx = this };
+        httpd_uri_t api_info = { .uri = "/api/info", .method = HTTP_GET, .handler = api_handler, .user_ctx = this };
         httpd_uri_t api_ssl_status = { .uri = "/api/ssl/status", .method = HTTP_GET, .handler = api_handler, .user_ctx = this };
         httpd_uri_t api_status = { .uri = "/api/status", .method = HTTP_GET, .handler = api_handler, .user_ctx = this };
         httpd_uri_t api_sensors = { .uri = "/api/sensors", .method = HTTP_GET, .handler = api_handler, .user_ctx = this };
@@ -1131,6 +1216,7 @@ public:
         httpd_register_uri_handler(server_, &api_password);
         httpd_register_uri_handler(server_, &api_factory_reset);
         httpd_register_uri_handler(server_, &api_health);
+        httpd_register_uri_handler(server_, &api_info);
         httpd_register_uri_handler(server_, &api_ssl_status);
         httpd_register_uri_handler(server_, &api_status);
         httpd_register_uri_handler(server_, &api_sensors);
