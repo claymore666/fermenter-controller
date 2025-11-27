@@ -1050,6 +1050,15 @@ public:
         instance_ = this;
         register_handlers_on_server(http_redirect_server_);
 
+#ifdef OTA_ENABLED
+        // Initialize OTA manager
+        ota_manager_ = new OtaManager();
+        if (ota_manager_) {
+            ota_manager_->set_system_callback(ota_system_callback_);
+            ESP_LOGI("HTTP", "OTA manager initialized");
+        }
+#endif
+
         running_ = true;
         ESP_LOGI("HTTP", "HTTP server started on port %d", http_port);
 
@@ -1872,6 +1881,14 @@ public:
             return api_can_status(response, response_size);
         }
 #endif
+#ifdef OTA_ENABLED
+        else if (strcmp(path, "/api/firmware/info") == 0) {
+            return api_firmware_info(response, response_size);
+        }
+        else if (strcmp(path, "/api/firmware/status") == 0) {
+            return api_firmware_status(response, response_size);
+        }
+#endif
         else if (strcmp(path, "/api/cpu/history") == 0) {
             return api_cpu_history(response, response_size);
         }
@@ -1902,12 +1919,8 @@ public:
             return api_reboot(response, response_size);
         }
 #ifdef OTA_ENABLED
-        // OTA firmware endpoints
-        else if (strcmp(path, "/api/firmware/info") == 0) {
-            return api_firmware_info(response, response_size);
-        } else if (strcmp(path, "/api/firmware/status") == 0) {
-            return api_firmware_status(response, response_size);
-        } else if (strcmp(path, "/api/firmware/download") == 0) {
+        // OTA firmware POST endpoints
+        else if (strcmp(path, "/api/firmware/download") == 0) {
             return api_firmware_download(body, response, response_size);
         } else if (strcmp(path, "/api/firmware/confirm") == 0) {
             return api_firmware_confirm(response, response_size);
