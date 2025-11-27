@@ -332,6 +332,7 @@ private:
         serial_->println("  wifi disconnect     - Disconnect (persistent)");
         serial_->println("  wifi set <ssid> <pass> - Set credentials");
         serial_->println("  wifi clear          - Clear credentials & provision");
+        serial_->println("  wifi scan           - Scan for available networks");
         serial_->println("");
         serial_->println("  eth                 - Ethernet status");
         serial_->println("  eth connect         - Start Ethernet interface");
@@ -1013,8 +1014,70 @@ private:
         } else if (strcmp(args[1], "disconnect") == 0) {
             wifi_prov_->disconnect();
             serial_->println("WiFi disconnected (will stay disconnected on reboot)");
+        } else if (strcmp(args[1], "scan") == 0) {
+#ifdef ESP32_BUILD
+            serial_->println("Scanning for WiFi networks...");
+
+            // Configure scan - passive scan is faster and doesn't require TX
+            wifi_scan_config_t scan_config = {};
+            scan_config.ssid = nullptr;
+            scan_config.bssid = nullptr;
+            scan_config.channel = 0;  // All channels
+            scan_config.show_hidden = false;
+            scan_config.scan_type = WIFI_SCAN_TYPE_ACTIVE;
+            scan_config.scan_time.active.min = 100;
+            scan_config.scan_time.active.max = 300;
+
+            esp_err_t err = esp_wifi_scan_start(&scan_config, true);  // Blocking scan
+            if (err != ESP_OK) {
+                printf("Scan failed: %s\r\n", esp_err_to_name(err));
+                return;
+            }
+
+            uint16_t ap_count = 0;
+            esp_wifi_scan_get_ap_num(&ap_count);
+
+            if (ap_count == 0) {
+                serial_->println("No networks found");
+                return;
+            }
+
+            // Limit to 20 networks max
+            if (ap_count > 20) ap_count = 20;
+
+            wifi_ap_record_t* ap_records = (wifi_ap_record_t*)malloc(ap_count * sizeof(wifi_ap_record_t));
+            if (!ap_records) {
+                serial_->println("Memory allocation failed");
+                return;
+            }
+
+            esp_wifi_scan_get_ap_records(&ap_count, ap_records);
+
+            printf("Found %d networks:\r\n", ap_count);
+            for (int i = 0; i < ap_count; i++) {
+                const char* auth_str = "UNKNOWN";
+                switch (ap_records[i].authmode) {
+                    case WIFI_AUTH_OPEN: auth_str = "OPEN"; break;
+                    case WIFI_AUTH_WEP: auth_str = "WEP"; break;
+                    case WIFI_AUTH_WPA_PSK: auth_str = "WPA"; break;
+                    case WIFI_AUTH_WPA2_PSK: auth_str = "WPA2"; break;
+                    case WIFI_AUTH_WPA_WPA2_PSK: auth_str = "WPA/WPA2"; break;
+                    case WIFI_AUTH_WPA3_PSK: auth_str = "WPA3"; break;
+                    case WIFI_AUTH_WPA2_WPA3_PSK: auth_str = "WPA2/WPA3"; break;
+                    default: break;
+                }
+                printf("  %s (%d dBm) %s\r\n",
+                       ap_records[i].ssid,
+                       ap_records[i].rssi,
+                       auth_str);
+            }
+
+            free(ap_records);
+#else
+            serial_->println("WiFi scan only available on ESP32");
+#endif
         } else {
-            serial_->println("Usage: wifi [connect|disconnect|set <ssid> <pass>|clear]");
+            serial_->println("Usage: wifi [connect|disconnect|scan|set <ssid> <pass>|clear]");
         }
     }
 
