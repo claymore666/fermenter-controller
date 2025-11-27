@@ -340,6 +340,31 @@ Example:
 CPU Usage: 0.2%
 ```
 
+### WebSocket
+
+| Command | Description |
+|---------|-------------|
+| `ws` | Show WebSocket status (enabled, client count, initialized) |
+| `ws clients` | List connected clients with session tokens and last activity |
+| `ws broadcast <msg>` | Send text message to all authenticated clients |
+
+Example:
+```
+> ws
+WebSocket Status:
+  Enabled: Yes
+  Clients: 2/4
+  Initialized: Yes
+
+> ws clients
+Connected clients (2):
+  [0] fd=60 session=35b6e498... last=5807ms
+  [1] fd=61 session=35b6e498... last=4327ms
+
+> ws broadcast Hello from debug console!
+Broadcast sent to 2 clients
+```
+
 ### Factory Reset
 
 | Command | Description |

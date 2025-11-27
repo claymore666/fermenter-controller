@@ -9,6 +9,7 @@ Compile-time flags to enable/disable features and reduce firmware size.
 | `WIFI_NTP_ENABLED` | WiFi connectivity + NTP time sync + Provisioning | - |
 | `ETHERNET_ENABLED` | Ethernet connectivity (W5500 SPI) | - |
 | `HTTP_ENABLED` | HTTP server + REST API | `WIFI_NTP_ENABLED` |
+| `WEBSOCKET_ENABLED` | WebSocket real-time push updates | `HTTP_ENABLED` |
 | `CERT_GENERATION_ENABLED` | Per-device SSL certificate generation | `HTTP_ENABLED` |
 | `MQTT_ENABLED` | MQTT client for telemetry/control | `WIFI_NTP_ENABLED` |
 | `CAN_ENABLED` | CAN bus communication (TWAI) | - |
@@ -80,6 +81,13 @@ HTTP_ENABLED (requires WIFI_NTP_ENABLED)
 ├── Rate limiting and session management
 └── HTTPS with self-signed certificates
 
+WEBSOCKET_ENABLED (requires HTTP_ENABLED)
+├── WebSocket server on /ws endpoint
+├── Session token authentication
+├── Real-time push updates (sensors, relays, alarms)
+├── Up to 4 concurrent clients
+└── ~20KB RAM per client (includes TLS buffers)
+
 MQTT_ENABLED (requires WIFI_NTP_ENABLED)
 ├── MQTT client
 ├── Telemetry publishing
@@ -121,6 +129,11 @@ ETHERNET_ENABLED
 // HTTP server code
 #endif
 
+#ifdef WEBSOCKET_ENABLED
+#include "modules/websocket_manager.h"
+// WebSocket real-time updates
+#endif
+
 #ifdef MQTT_ENABLED
 #include "modules/mqtt_client.h"
 // MQTT code
@@ -156,6 +169,7 @@ The REST API module is **only compiled when `HTTP_ENABLED` is defined**. This re
 | `ETHERNET_ENABLED` | Implemented (W5500 SPI, DHCP) |
 | `CAN_ENABLED` | Implemented |
 | `HTTP_ENABLED` | Implemented (REST API + admin web interface) |
+| `WEBSOCKET_ENABLED` | Implemented (real-time push updates) |
 | `MQTT_ENABLED` | Not implemented |
 
 ### WiFi/NTP Implementation Details
