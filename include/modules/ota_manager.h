@@ -135,6 +135,8 @@ typedef void (*OtaSystemCallback)(bool pause);
 class OtaManager {
 public:
     static constexpr size_t WRITE_BUFFER_SIZE = 4096;  // Write in 4KB chunks
+    static constexpr size_t DOWNLOAD_TASK_STACK = 16384;  // 16KB stack for HTTPS OTA
+    static constexpr size_t MAX_URL_LENGTH = 256;
 
     OtaManager()
         : state_(OtaState::IDLE)
@@ -143,9 +145,11 @@ public:
         , ota_handle_(0)
         , update_partition_(nullptr)
         , mutex_(nullptr)
+        , download_task_(nullptr)
 #endif
     {
         progress_.reset();
+        download_url_[0] = '\0';
 #ifdef ESP32_BUILD
         mutex_ = xSemaphoreCreateMutex();
 #endif
@@ -540,145 +544,54 @@ public:
             return result;
         }
 
-        if (is_update_in_progress()) {
+        if (is_update_in_progress() || download_task_ != nullptr) {
             unlock();
             result.set_error("Update already in progress");
             return result;
         }
 
-        // Default to GitHub OTA branch
-        const char* firmware_url = url;
-        if (!firmware_url || firmware_url[0] == '\0') {
-            firmware_url = "https://raw.githubusercontent.com/claymore666/fermenter-controller/OTA/firmware.bin";
+        // Store URL for the download task
+        if (url && url[0] != '\0') {
+            strncpy(download_url_, url, MAX_URL_LENGTH - 1);
+            download_url_[MAX_URL_LENGTH - 1] = '\0';
+        } else {
+            // Default to GitHub OTA branch
+            strncpy(download_url_,
+                    "https://raw.githubusercontent.com/claymore666/fermenter-controller/OTA/firmware.bin",
+                    MAX_URL_LENGTH - 1);
+            download_url_[MAX_URL_LENGTH - 1] = '\0';
         }
 
-        // Set state and pause system
+        // Set state
         state_ = OtaState::PREPARING;
         progress_.state = OtaState::PREPARING;
-        progress_.bytes_total = 0;  // Unknown until download starts
+        progress_.bytes_total = 0;
         progress_.bytes_received = 0;
-        strcpy(progress_.status_message, "Preparing download...");
+        strcpy(progress_.status_message, "Starting download task...");
 
-        // Pause system activities
-        if (system_callback_) {
-            ESP_LOGI("OTA", "Pausing system for OTA download");
-            system_callback_(true);
-        }
+        ESP_LOGI("OTA", "Starting OTA download task for: %s", download_url_);
 
-        ESP_LOGI("OTA", "Downloading firmware from: %s", firmware_url);
+        // Create download task with sufficient stack for HTTPS OTA
+        BaseType_t ret = xTaskCreate(
+            download_task_func,
+            "ota_download",
+            DOWNLOAD_TASK_STACK,
+            this,
+            5,  // Medium priority
+            &download_task_
+        );
 
-        // Configure HTTP client
-        esp_http_client_config_t http_config = {};
-        http_config.url = firmware_url;
-        http_config.timeout_ms = 30000;
-        http_config.keep_alive_enable = true;
-        http_config.crt_bundle_attach = esp_crt_bundle_attach;  // Use certificate bundle for HTTPS
-
-        // Configure OTA
-        esp_https_ota_config_t ota_config = {};
-        ota_config.http_config = &http_config;
-
-        state_ = OtaState::DOWNLOADING;
-        progress_.state = OtaState::DOWNLOADING;
-        strcpy(progress_.status_message, "Downloading...");
-
-        // Start OTA download
-        esp_https_ota_handle_t https_ota_handle = NULL;
-        esp_err_t err = esp_https_ota_begin(&ota_config, &https_ota_handle);
-        if (err != ESP_OK) {
+        if (ret != pdPASS) {
             state_ = OtaState::FAILED;
             progress_.state = OtaState::FAILED;
-            snprintf(progress_.status_message, sizeof(progress_.status_message),
-                     "OTA begin failed: 0x%x", err);
-            resume_system();
+            strcpy(progress_.status_message, "Failed to create download task");
             unlock();
-            result.set_error(progress_.status_message);
+            result.set_error("Failed to create download task");
             return result;
         }
-
-        // Get image size if available
-        int image_size = esp_https_ota_get_image_size(https_ota_handle);
-        if (image_size > 0) {
-            progress_.bytes_total = image_size;
-            ESP_LOGI("OTA", "Firmware size: %d bytes", image_size);
-        }
-
-        // Download and flash in chunks
-        while (true) {
-            err = esp_https_ota_perform(https_ota_handle);
-            if (err != ESP_ERR_HTTPS_OTA_IN_PROGRESS) {
-                break;
-            }
-
-            // Update progress
-            int read_len = esp_https_ota_get_image_len_read(https_ota_handle);
-            progress_.bytes_received = read_len;
-            progress_.update_progress();
-            snprintf(progress_.status_message, sizeof(progress_.status_message),
-                     "Downloading: %lu/%lu bytes (%d%%)",
-                     (unsigned long)progress_.bytes_received,
-                     (unsigned long)progress_.bytes_total,
-                     progress_.percent);
-
-            // Yield to watchdog
-            vTaskDelay(pdMS_TO_TICKS(10));
-        }
-
-        if (err != ESP_OK) {
-            esp_https_ota_abort(https_ota_handle);
-            state_ = OtaState::FAILED;
-            progress_.state = OtaState::FAILED;
-            snprintf(progress_.status_message, sizeof(progress_.status_message),
-                     "Download failed: 0x%x", err);
-            resume_system();
-            unlock();
-            result.set_error(progress_.status_message);
-            return result;
-        }
-
-        // Verify the firmware image
-        state_ = OtaState::VERIFYING;
-        progress_.state = OtaState::VERIFYING;
-        strcpy(progress_.status_message, "Verifying firmware...");
-
-        if (!esp_https_ota_is_complete_data_received(https_ota_handle)) {
-            esp_https_ota_abort(https_ota_handle);
-            state_ = OtaState::FAILED;
-            progress_.state = OtaState::FAILED;
-            strcpy(progress_.status_message, "Incomplete download");
-            resume_system();
-            unlock();
-            result.set_error("Firmware download incomplete");
-            return result;
-        }
-
-        // Finish OTA (validates and sets boot partition)
-        err = esp_https_ota_finish(https_ota_handle);
-        if (err != ESP_OK) {
-            state_ = OtaState::FAILED;
-            progress_.state = OtaState::FAILED;
-            if (err == ESP_ERR_OTA_VALIDATE_FAILED) {
-                strcpy(progress_.status_message, "Invalid firmware image");
-                result.set_error("Firmware validation failed");
-            } else {
-                snprintf(progress_.status_message, sizeof(progress_.status_message),
-                         "OTA finish failed: 0x%x", err);
-                result.set_error(progress_.status_message);
-            }
-            resume_system();
-            unlock();
-            return result;
-        }
-
-        state_ = OtaState::COMPLETE;
-        progress_.state = OtaState::COMPLETE;
-        progress_.percent = 100;
-        strcpy(progress_.status_message, "Download complete, reboot required");
-
-        ESP_LOGI("OTA", "Firmware download complete from %s", firmware_url);
 
         unlock();
-        result.set_success("Firmware download successful, reboot to apply");
+        result.set_success("Download started, check /api/firmware/status for progress");
         return result;
 #else
         (void)url;
@@ -762,11 +675,13 @@ private:
     OtaState state_;
     OtaProgress progress_;
     OtaSystemCallback system_callback_;
+    char download_url_[MAX_URL_LENGTH];
 
 #ifdef ESP32_BUILD
     esp_ota_handle_t ota_handle_;
     const esp_partition_t* update_partition_;
     SemaphoreHandle_t mutex_;
+    TaskHandle_t download_task_;
 
     bool lock() {
         if (!mutex_) return false;
@@ -784,6 +699,148 @@ private:
             ESP_LOGI("OTA", "Resuming system after OTA");
             system_callback_(false);
         }
+    }
+
+    /**
+     * Static task wrapper for download
+     */
+    static void download_task_func(void* param) {
+        OtaManager* self = static_cast<OtaManager*>(param);
+        if (self) {
+            self->perform_download();
+        }
+        vTaskDelete(NULL);
+    }
+
+    /**
+     * Check if URL is HTTPS
+     */
+    static bool is_https_url(const char* url) {
+        return url && strncmp(url, "https://", 8) == 0;
+    }
+
+    /**
+     * Perform the actual download (runs in dedicated task)
+     */
+    void perform_download() {
+        ESP_LOGI("OTA", "Download task started, URL: %s", download_url_);
+
+        // Pause system activities
+        if (system_callback_) {
+            ESP_LOGI("OTA", "Pausing system for OTA download");
+            system_callback_(true);
+        }
+
+        // Configure HTTP client
+        esp_http_client_config_t http_config = {};
+        http_config.url = download_url_;
+        http_config.timeout_ms = 60000;  // 60 second timeout
+        http_config.keep_alive_enable = true;  // Keep connection alive
+        http_config.buffer_size = 4096;
+        http_config.buffer_size_tx = 1024;
+
+        // Configure TLS based on URL type
+        if (is_https_url(download_url_)) {
+            http_config.crt_bundle_attach = esp_crt_bundle_attach;
+            http_config.transport_type = HTTP_TRANSPORT_OVER_SSL;
+            ESP_LOGI("OTA", "Using HTTPS with certificate bundle");
+        } else {
+            // For plain HTTP URLs, use TCP transport (no TLS)
+            // skip_cert_common_name_check required to bypass esp_https_ota cert check
+            http_config.transport_type = HTTP_TRANSPORT_OVER_TCP;
+            http_config.skip_cert_common_name_check = true;
+            ESP_LOGI("OTA", "Using plain HTTP (no TLS)");
+        }
+
+        // Configure OTA
+        esp_https_ota_config_t ota_config = {};
+        ota_config.http_config = &http_config;
+        ota_config.bulk_flash_erase = false;  // Don't erase entire partition at once
+
+        state_ = OtaState::DOWNLOADING;
+        progress_.state = OtaState::DOWNLOADING;
+        strcpy(progress_.status_message, "Connecting...");
+
+        // Start OTA download
+        esp_https_ota_handle_t https_ota_handle = NULL;
+        esp_err_t err = esp_https_ota_begin(&ota_config, &https_ota_handle);
+        if (err != ESP_OK) {
+            state_ = OtaState::FAILED;
+            progress_.state = OtaState::FAILED;
+            snprintf(progress_.status_message, sizeof(progress_.status_message),
+                     "OTA begin failed: 0x%x", err);
+            ESP_LOGE("OTA", "esp_https_ota_begin failed: %s", esp_err_to_name(err));
+            resume_system();
+            download_task_ = nullptr;
+            return;
+        }
+
+        // Get image size if available
+        int image_size = esp_https_ota_get_image_size(https_ota_handle);
+        if (image_size > 0) {
+            progress_.bytes_total = image_size;
+            ESP_LOGI("OTA", "Firmware size: %d bytes", image_size);
+        }
+
+        strcpy(progress_.status_message, "Downloading...");
+
+        // Download and flash in chunks
+        while (true) {
+            err = esp_https_ota_perform(https_ota_handle);
+            if (err != ESP_ERR_HTTPS_OTA_IN_PROGRESS) {
+                break;
+            }
+
+            // Update progress
+            int read_len = esp_https_ota_get_image_len_read(https_ota_handle);
+            progress_.bytes_received = read_len;
+            progress_.update_progress();
+
+            // Yield to other tasks
+            vTaskDelay(pdMS_TO_TICKS(10));
+        }
+
+        if (err != ESP_OK) {
+            esp_https_ota_abort(https_ota_handle);
+            state_ = OtaState::FAILED;
+            progress_.state = OtaState::FAILED;
+            snprintf(progress_.status_message, sizeof(progress_.status_message),
+                     "Download failed: 0x%x", err);
+            ESP_LOGE("OTA", "esp_https_ota_perform failed: %s", esp_err_to_name(err));
+            resume_system();
+            download_task_ = nullptr;
+            return;
+        }
+
+        // Verify and finish
+        state_ = OtaState::VERIFYING;
+        progress_.state = OtaState::VERIFYING;
+        strcpy(progress_.status_message, "Verifying...");
+
+        err = esp_https_ota_finish(https_ota_handle);
+        if (err != ESP_OK) {
+            state_ = OtaState::FAILED;
+            progress_.state = OtaState::FAILED;
+            snprintf(progress_.status_message, sizeof(progress_.status_message),
+                     "Verify failed: 0x%x", err);
+            ESP_LOGE("OTA", "esp_https_ota_finish failed: %s", esp_err_to_name(err));
+            resume_system();
+            download_task_ = nullptr;
+            return;
+        }
+
+        // Success!
+        state_ = OtaState::COMPLETE;
+        progress_.state = OtaState::COMPLETE;
+        progress_.percent = 100;
+        strcpy(progress_.status_message, "Complete! Rebooting...");
+        ESP_LOGI("OTA", "OTA download complete, rebooting...");
+
+        download_task_ = nullptr;
+
+        // Reboot after short delay
+        vTaskDelay(pdMS_TO_TICKS(1000));
+        esp_restart();
     }
 #else
     bool lock() { return true; }

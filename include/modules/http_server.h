@@ -211,7 +211,7 @@ public:
             config.httpd.server_port = port;
             config.httpd.ctrl_port = port + 1;
             config.httpd.max_uri_handlers = 50;
-            config.httpd.stack_size = 8192;
+            config.httpd.stack_size = 12288;  // 12KB for OTA setup
             config.httpd.lru_purge_enable = true;
             config.httpd.uri_match_fn = httpd_uri_match_wildcard;  // Enable wildcard matching
 
@@ -234,7 +234,7 @@ public:
             config.server_port = port;
             config.ctrl_port = port + 1;
             config.max_uri_handlers = 50;
-            config.stack_size = 8192;
+            config.stack_size = 12288;  // 12KB for OTA setup
             config.lru_purge_enable = true;
             config.uri_match_fn = httpd_uri_match_wildcard;  // Enable wildcard matching
 
@@ -913,7 +913,7 @@ private:
         config.httpd.server_port = 443;
         config.httpd.ctrl_port = 32769;  // Different from HTTP
         config.httpd.max_uri_handlers = 50;  // Increased for OTA endpoints
-        config.httpd.stack_size = 8192;
+        config.httpd.stack_size = 12288;  // 12KB for OTA setup
         config.httpd.lru_purge_enable = true;
         config.httpd.uri_match_fn = httpd_uri_match_wildcard;
 
@@ -1036,7 +1036,7 @@ public:
         config.server_port = http_port;
         config.ctrl_port = http_port + 1;
         config.max_uri_handlers = 50;  // Increased for OTA endpoints
-        config.stack_size = 8192;
+        config.stack_size = 12288;  // 12KB for OTA setup
         config.lru_purge_enable = true;
         config.uri_match_fn = httpd_uri_match_wildcard;
 

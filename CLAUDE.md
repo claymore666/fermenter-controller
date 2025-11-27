@@ -443,4 +443,19 @@ The boot verification script looks for these in serial output:
 | `Guru Meditation` | **CRASH** - boot failed |
 | `panic` | **CRASH** - boot failed |
 | `watchdog` | **TIMEOUT** - possible hang |
-- remember that we have a sdkconfig of our own not a default from platformio
+
+## ESP-IDF Configuration (sdkconfig)
+
+**IMPORTANT**: This project uses per-environment sdkconfig files that override `sdkconfig.defaults`.
+
+| File | Purpose |
+|------|---------|
+| `sdkconfig.defaults` | Base ESP-IDF settings, documentation reference |
+| `sdkconfig.esp32_wifi` | **Actual config used** for `esp32_wifi` build target |
+
+When PlatformIO builds with `-e esp32_wifi`, it uses `sdkconfig.esp32_wifi` if present, ignoring `sdkconfig.defaults`. Always modify the target-specific file for ESP-IDF Kconfig options.
+
+Key settings in `sdkconfig.esp32_wifi`:
+- `CONFIG_ESP_HTTPS_OTA_ALLOW_HTTP=y` - Allow HTTP OTA downloads
+- `CONFIG_MBEDTLS_SSL_IN_CONTENT_LEN=16384` - SSL input buffer size
+- `CONFIG_MBEDTLS_CERTIFICATE_BUNDLE=y` - Certificate bundle for HTTPS client

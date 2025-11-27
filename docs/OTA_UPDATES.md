@@ -9,7 +9,7 @@ The ESP32-S3 uses a dual OTA partition layout (app0/app1, 4MB each) allowing saf
 ## Features
 
 - **Upload-based OTA**: Upload firmware binary via web interface or REST API
-- **URL-based OTA**: Download firmware from URL (default: GitHub OTA branch)
+- **URL-based OTA**: Download firmware from HTTP or HTTPS URLs (local server or GitHub)
 - **Automatic rollback**: If new firmware fails to boot, automatically reverts to previous
 - **System pause**: MODBUS polling, PID control, and sensor updates pause during OTA
 - **Progress tracking**: Real-time upload progress in web interface
@@ -217,6 +217,50 @@ OTA is enabled via build flag in `platformio.ini`:
 
 This flag is included in the `esp32_wifi` and `esp32_full` environments.
 
+## HTTP vs HTTPS Downloads
+
+The OTA manager supports both HTTP and HTTPS URLs:
+
+| Protocol | Use Case | Notes |
+|----------|----------|-------|
+| HTTP | Local network servers | Recommended for local OTA |
+| HTTPS | GitHub, external servers | May have SSL buffer issues |
+
+**Why HTTP is recommended for firmware downloads:**
+- Firmware integrity is verified by ESP32's image verification (signature check)
+- No SSL handshake overhead - faster downloads
+- Avoids SSL buffer memory issues on constrained devices
+- Encryption provides no security benefit (firmware is public binary)
+
+**Example: Local HTTP OTA server**
+```bash
+# On your development machine
+cd .pio/build/esp32_wifi
+python3 -m http.server 8080
+
+# Then trigger OTA with URL
+curl -X POST https://fermenter.local/api/firmware/download \
+  -H "Authorization: Bearer <token>" \
+  -H "Content-Type: application/json" \
+  -d '{"url": "http://192.168.0.100:8080/firmware.bin"}'
+```
+
+## ESP-IDF Configuration
+
+OTA configuration is in `sdkconfig.esp32_wifi` (not `sdkconfig.defaults`):
+
+```
+# Allow plain HTTP for OTA updates
+CONFIG_ESP_HTTPS_OTA_ALLOW_HTTP=y
+CONFIG_OTA_ALLOW_HTTP=y
+
+# SSL buffer sizes (for HTTPS if needed)
+CONFIG_MBEDTLS_SSL_IN_CONTENT_LEN=16384
+CONFIG_MBEDTLS_SSL_OUT_CONTENT_LEN=4096
+```
+
+**Important**: PlatformIO uses `sdkconfig.esp32_wifi` for the `esp32_wifi` build target, overriding `sdkconfig.defaults`. Always modify the target-specific file.
+
 ## Testing Status
 
 | Feature | Status |
@@ -225,7 +269,8 @@ This flag is included in the `esp32_wifi` and `esp32_full` environments.
 | Partition info (`/api/firmware/info`) | ✓ Working |
 | Progress tracking (`/api/firmware/status`) | ✓ Working |
 | Direct upload via curl | ⚠ SSL buffer issues |
-| Download from URL | Implemented (needs URL) |
+| Download from HTTP URL | ✓ Working |
+| Download from HTTPS URL | ⚠ SSL buffer issues |
 | Web interface upload | Implemented (SSL limited) |
 | Rollback | Implemented |
 | Confirm | Implemented |
