@@ -192,6 +192,21 @@ Flash (16MB):
 | `Write failed` | Flash error | Check flash health |
 | `Download failed` | Network error | Check URL and connectivity |
 
+## Known Limitations
+
+### Direct Upload via curl/HTTPS
+
+Direct firmware upload via `POST /api/firmware/upload` may fail with large firmware files (~1.5MB) due to SSL buffer constraints. The ESP32's TLS buffers are reduced to 4KB to allow multiple concurrent connections, which can cause `MBEDTLS_ERR_SSL_READ` errors during large POST body transfers.
+
+**Workaround**: Use the **Download from URL** method (`POST /api/firmware/download`) which uses ESP-IDF's esp_https_ota with its own SSL session and handles streaming properly.
+
+### Web Interface Upload
+
+The web interface upload may be affected by the same SSL buffer limitation. If upload fails:
+1. Try the "Download from URL" option instead
+2. Host the firmware.bin on a web server accessible by the device
+3. Enter the URL and click "Download & Install"
+
 ## Build Flag
 
 OTA is enabled via build flag in `platformio.ini`:
@@ -201,3 +216,16 @@ OTA is enabled via build flag in `platformio.ini`:
 ```
 
 This flag is included in the `esp32_wifi` and `esp32_full` environments.
+
+## Testing Status
+
+| Feature | Status |
+|---------|--------|
+| REST API endpoints | ✓ Working |
+| Partition info (`/api/firmware/info`) | ✓ Working |
+| Progress tracking (`/api/firmware/status`) | ✓ Working |
+| Direct upload via curl | ⚠ SSL buffer issues |
+| Download from URL | Implemented (needs URL) |
+| Web interface upload | Implemented (SSL limited) |
+| Rollback | Implemented |
+| Confirm | Implemented |
