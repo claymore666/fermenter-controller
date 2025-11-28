@@ -12,6 +12,7 @@
 #include <cstring>
 #include <cstdio>
 #include <cstdarg>
+#include <cmath>
 #include <string>
 #include <functional>
 
@@ -2152,12 +2153,19 @@ public:
             return 404;
         }
 
-        // Parse setpoint
+        // Parse setpoint with bounds validation
         const char* setpoint_str = strstr(body, "\"setpoint\"");
         if (setpoint_str) {
             setpoint_str = strchr(setpoint_str, ':');
             if (setpoint_str) {
-                ferm->target_temp = atof(setpoint_str + 1);
+                float temp = atof(setpoint_str + 1);
+                // Validate temperature range (-10°C to 50°C for fermentation)
+                if (!isfinite(temp) || temp < -10.0f || temp > 50.0f) {
+                    snprintf(response, response_size,
+                        "{\"error\":\"Setpoint out of range (-10 to 50°C)\"}");
+                    return 400;
+                }
+                ferm->target_temp = temp;
             }
         }
 
@@ -2208,22 +2216,44 @@ public:
             return 404;
         }
 
-        // Parse PID parameters
+        // Parse PID parameters with bounds validation
         const char* kp_str = strstr(body, "\"kp\"");
         const char* ki_str = strstr(body, "\"ki\"");
         const char* kd_str = strstr(body, "\"kd\"");
 
+        // PID bounds: kp 0-100, ki 0-50, kd 0-20
         if (kp_str) {
             kp_str = strchr(kp_str, ':');
-            if (kp_str) ferm->pid_params.kp = atof(kp_str + 1);
+            if (kp_str) {
+                float val = atof(kp_str + 1);
+                if (!isfinite(val) || val < 0.0f || val > 100.0f) {
+                    snprintf(response, response_size, "{\"error\":\"kp out of range (0-100)\"}");
+                    return 400;
+                }
+                ferm->pid_params.kp = val;
+            }
         }
         if (ki_str) {
             ki_str = strchr(ki_str, ':');
-            if (ki_str) ferm->pid_params.ki = atof(ki_str + 1);
+            if (ki_str) {
+                float val = atof(ki_str + 1);
+                if (!isfinite(val) || val < 0.0f || val > 50.0f) {
+                    snprintf(response, response_size, "{\"error\":\"ki out of range (0-50)\"}");
+                    return 400;
+                }
+                ferm->pid_params.ki = val;
+            }
         }
         if (kd_str) {
             kd_str = strchr(kd_str, ':');
-            if (kd_str) ferm->pid_params.kd = atof(kd_str + 1);
+            if (kd_str) {
+                float val = atof(kd_str + 1);
+                if (!isfinite(val) || val < 0.0f || val > 20.0f) {
+                    snprintf(response, response_size, "{\"error\":\"kd out of range (0-20)\"}");
+                    return 400;
+                }
+                ferm->pid_params.kd = val;
+            }
         }
 
         snprintf(response, response_size,
