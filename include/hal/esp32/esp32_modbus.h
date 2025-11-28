@@ -124,10 +124,33 @@ public:
             return false;
         }
 
-        // Verify response
-        if (response[0] != slave_addr || response[1] != 0x03) {
+        // Verify response - check for error response first
+        if (response[0] != slave_addr) {
             error_count_++;
-            ESP_LOGW(TAG, "Invalid response from slave %d", slave_addr);
+            ESP_LOGW(TAG, "Wrong slave address in response: expected %d, got %d", slave_addr, response[0]);
+            return false;
+        }
+
+        // Check for MODBUS exception response (function code | 0x80)
+        if (response[1] == (0x03 | 0x80)) {
+            error_count_++;
+            uint8_t exception_code = (len >= 3) ? response[2] : 0;
+            ESP_LOGW(TAG, "MODBUS exception %d from slave %d", exception_code, slave_addr);
+            return false;
+        }
+
+        if (response[1] != 0x03) {
+            error_count_++;
+            ESP_LOGW(TAG, "Invalid function code from slave %d: 0x%02X", slave_addr, response[1]);
+            return false;
+        }
+
+        // Validate byte count field
+        uint8_t byte_count = response[2];
+        if (byte_count != count * 2) {
+            error_count_++;
+            ESP_LOGW(TAG, "Byte count mismatch from slave %d: expected %d, got %d",
+                     slave_addr, count * 2, byte_count);
             return false;
         }
 
@@ -139,7 +162,7 @@ public:
             return false;
         }
 
-        // Extract data (big-endian)
+        // Extract data (big-endian) - bounds already validated by byte_count check
         for (uint16_t i = 0; i < count; i++) {
             data[i] = (response[3 + i * 2] << 8) | response[4 + i * 2];
         }
