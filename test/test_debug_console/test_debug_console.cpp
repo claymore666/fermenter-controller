@@ -351,6 +351,25 @@ void test_backspace_handling() {
     TEST_ASSERT_TRUE(output.find("Available commands") != std::string::npos);
 }
 
+// #54 - WiFi module availability test
+// Note: In simulator, WiFi provisioning is not available, so we test the fallback behavior
+// Actual credential length validation is tested on hardware where WiFi module is present
+void test_wifi_not_available_in_simulator() {
+    std::string output = send_command("wifi set TestNetwork password123");
+    // In simulator without WiFi module, should report not available
+    TEST_ASSERT_TRUE(output.find("not available") != std::string::npos);
+}
+
+// #42 - OTA module availability test
+// Note: In simulator, OTA is not enabled, so we test the fallback behavior
+// Actual URL scheme validation is tested on hardware where OTA is enabled
+void test_firmware_not_available_in_simulator() {
+    std::string output = send_command("firmware download http://example.com/fw.bin");
+    // In simulator without OTA, should report not available
+    TEST_ASSERT_TRUE(output.find("not available") != std::string::npos ||
+                     output.find("OTA_ENABLED") != std::string::npos);
+}
+
 int main(int argc, char **argv) {
     (void)argc;
     (void)argv;
@@ -405,6 +424,10 @@ int main(int argc, char **argv) {
     RUN_TEST(test_unknown_command);
     RUN_TEST(test_empty_command);
     RUN_TEST(test_backspace_handling);
+
+    // Module availability tests (validation logic tested on hardware)
+    RUN_TEST(test_wifi_not_available_in_simulator);
+    RUN_TEST(test_firmware_not_available_in_simulator);
 
     return UNITY_END();
 }

@@ -188,6 +188,88 @@ void test_api_endpoint_not_found() {
     TEST_ASSERT_EQUAL(404, response.status_code);
 }
 
+// #53 - REST API path suffix matching tests
+// Relay names containing "on" or "off" substrings should work correctly
+
+void test_api_relay_name_containing_on() {
+    // Register relay with "on" in the name
+    state.register_relay("heater_control", RelayType::SOLENOID_NC);
+
+    FermentationPlanManager plans(&sim_time, &storage, &state, &events);
+    RestApiHandler api(&state, &events, &plans, &config);
+
+    // Turn on the relay
+    HttpResponse response;
+    api.handle_request(HttpMethod::POST, "/relays/heater_control/on", nullptr, response);
+
+    TEST_ASSERT_EQUAL(200, response.status_code);
+    auto* relay = state.get_relay("heater_control");
+    TEST_ASSERT_TRUE(relay->state);
+
+    // Turn off the relay
+    api.handle_request(HttpMethod::POST, "/relays/heater_control/off", nullptr, response);
+    TEST_ASSERT_EQUAL(200, response.status_code);
+    TEST_ASSERT_FALSE(relay->state);
+}
+
+void test_api_relay_name_ending_with_on() {
+    // Register relay whose name ends with "on" (tricky case)
+    state.register_relay("fan_option", RelayType::SOLENOID_NC);
+
+    FermentationPlanManager plans(&sim_time, &storage, &state, &events);
+    RestApiHandler api(&state, &events, &plans, &config);
+
+    // Turn on the relay - should match /fan_option/on not just find "on" anywhere
+    HttpResponse response;
+    api.handle_request(HttpMethod::POST, "/relays/fan_option/on", nullptr, response);
+
+    TEST_ASSERT_EQUAL(200, response.status_code);
+    auto* relay = state.get_relay("fan_option");
+    TEST_ASSERT_TRUE(relay->state);
+}
+
+void test_api_relay_name_containing_off() {
+    // Register relay with "off" in the name
+    state.register_relay("coffee_maker", RelayType::SOLENOID_NC);
+
+    FermentationPlanManager plans(&sim_time, &storage, &state, &events);
+    RestApiHandler api(&state, &events, &plans, &config);
+
+    // Turn on the relay
+    HttpResponse response;
+    api.handle_request(HttpMethod::POST, "/relays/coffee_maker/on", nullptr, response);
+
+    TEST_ASSERT_EQUAL(200, response.status_code);
+    auto* relay = state.get_relay("coffee_maker");
+    TEST_ASSERT_TRUE(relay->state);
+
+    // Turn off the relay
+    api.handle_request(HttpMethod::POST, "/relays/coffee_maker/off", nullptr, response);
+    TEST_ASSERT_EQUAL(200, response.status_code);
+    TEST_ASSERT_FALSE(relay->state);
+}
+
+void test_api_relay_name_with_on_off_substring() {
+    // Edge case: relay name contains both "on" and "off"
+    state.register_relay("confounding", RelayType::SOLENOID_NC);
+
+    FermentationPlanManager plans(&sim_time, &storage, &state, &events);
+    RestApiHandler api(&state, &events, &plans, &config);
+
+    // Should correctly parse the /on suffix
+    HttpResponse response;
+    api.handle_request(HttpMethod::POST, "/relays/confounding/on", nullptr, response);
+
+    TEST_ASSERT_EQUAL(200, response.status_code);
+    auto* relay = state.get_relay("confounding");
+    TEST_ASSERT_TRUE(relay->state);
+
+    // Should correctly parse the /off suffix
+    api.handle_request(HttpMethod::POST, "/relays/confounding/off", nullptr, response);
+    TEST_ASSERT_EQUAL(200, response.status_code);
+    TEST_ASSERT_FALSE(relay->state);
+}
+
 // Safety Controller tests
 
 void test_safety_no_alarms_initially() {
@@ -301,6 +383,12 @@ int main(int argc, char **argv) {
     RUN_TEST(test_api_set_setpoint);
     RUN_TEST(test_api_get_system_status);
     RUN_TEST(test_api_endpoint_not_found);
+
+    // Path suffix matching tests (#53)
+    RUN_TEST(test_api_relay_name_containing_on);
+    RUN_TEST(test_api_relay_name_ending_with_on);
+    RUN_TEST(test_api_relay_name_containing_off);
+    RUN_TEST(test_api_relay_name_with_on_off_substring);
 
     // Safety Controller tests
     RUN_TEST(test_safety_no_alarms_initially);

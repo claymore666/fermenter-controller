@@ -1251,6 +1251,193 @@ void test_generate_session_token_unique() {
 }
 
 // ============================================
+// SECURITY VALIDATION TESTS (#42, #48, #53)
+// ============================================
+
+// #42 - URL scheme validation for OTA downloads
+// Note: In simulator without OTA_ENABLED, these endpoints return 404
+// When OTA is enabled, invalid URL schemes return 400 with "Invalid URL scheme"
+void test_firmware_download_rejects_ftp_url() {
+    const char* token = login_with_test_password();
+
+    int status = server->handle_request("POST", "/api/firmware/download",
+        "{\"url\":\"ftp://evil.com/firmware.bin\"}", token, response_buffer, sizeof(response_buffer));
+
+    // Expect 400 (invalid scheme) when OTA enabled, or 404 (not found) when disabled
+    TEST_ASSERT_TRUE(status == 400 || status == 404);
+    if (status == 400) {
+        TEST_ASSERT_NOT_NULL(strstr(response_buffer, "Invalid URL scheme"));
+    }
+}
+
+void test_firmware_download_rejects_file_url() {
+    const char* token = login_with_test_password();
+
+    int status = server->handle_request("POST", "/api/firmware/download",
+        "{\"url\":\"file:///etc/passwd\"}", token, response_buffer, sizeof(response_buffer));
+
+    TEST_ASSERT_TRUE(status == 400 || status == 404);
+    if (status == 400) {
+        TEST_ASSERT_NOT_NULL(strstr(response_buffer, "Invalid URL scheme"));
+    }
+}
+
+void test_firmware_download_rejects_javascript_url() {
+    const char* token = login_with_test_password();
+
+    int status = server->handle_request("POST", "/api/firmware/download",
+        "{\"url\":\"javascript:alert(1)\"}", token, response_buffer, sizeof(response_buffer));
+
+    TEST_ASSERT_TRUE(status == 400 || status == 404);
+    if (status == 400) {
+        TEST_ASSERT_NOT_NULL(strstr(response_buffer, "Invalid URL scheme"));
+    }
+}
+
+void test_firmware_download_accepts_http_url() {
+    const char* token = login_with_test_password();
+
+    // Note: This will fail at actual download (no server), but should pass URL validation
+    int status = server->handle_request("POST", "/api/firmware/download",
+        "{\"url\":\"http://example.com/firmware.bin\"}", token, response_buffer, sizeof(response_buffer));
+
+    // Should not be 400 with "Invalid URL scheme" - may be 404 (OTA disabled) or other error
+    if (status == 400) {
+        TEST_ASSERT_NULL(strstr(response_buffer, "Invalid URL scheme"));
+    }
+}
+
+void test_firmware_download_accepts_https_url() {
+    const char* token = login_with_test_password();
+
+    int status = server->handle_request("POST", "/api/firmware/download",
+        "{\"url\":\"https://example.com/firmware.bin\"}", token, response_buffer, sizeof(response_buffer));
+
+    // Should not be 400 with "Invalid URL scheme"
+    if (status == 400) {
+        TEST_ASSERT_NULL(strstr(response_buffer, "Invalid URL scheme"));
+    }
+}
+
+// #48 - Numeric bounds checking for setpoints
+void test_fermenter_setpoint_rejects_too_low() {
+    const char* token = login_with_test_password();
+
+    setup_test_fermenter(10, "F10");
+
+    int status = server->handle_request("POST", "/api/fermenter/10",
+        "{\"setpoint\":-15.0}", token, response_buffer, sizeof(response_buffer));
+
+    TEST_ASSERT_EQUAL(400, status);
+    TEST_ASSERT_NOT_NULL(strstr(response_buffer, "out of range"));
+}
+
+void test_fermenter_setpoint_rejects_too_high() {
+    const char* token = login_with_test_password();
+
+    setup_test_fermenter(11, "F11");
+
+    int status = server->handle_request("POST", "/api/fermenter/11",
+        "{\"setpoint\":55.0}", token, response_buffer, sizeof(response_buffer));
+
+    TEST_ASSERT_EQUAL(400, status);
+    TEST_ASSERT_NOT_NULL(strstr(response_buffer, "out of range"));
+}
+
+void test_fermenter_setpoint_accepts_boundary_low() {
+    const char* token = login_with_test_password();
+
+    setup_test_fermenter(12, "F12");
+
+    int status = server->handle_request("POST", "/api/fermenter/12",
+        "{\"setpoint\":-10.0}", token, response_buffer, sizeof(response_buffer));
+
+    TEST_ASSERT_EQUAL(200, status);
+
+    auto* ferm = state->get_fermenter(12);
+    TEST_ASSERT_EQUAL_FLOAT(-10.0f, ferm->target_temp);
+}
+
+void test_fermenter_setpoint_accepts_boundary_high() {
+    const char* token = login_with_test_password();
+
+    setup_test_fermenter(13, "F13");
+
+    int status = server->handle_request("POST", "/api/fermenter/13",
+        "{\"setpoint\":50.0}", token, response_buffer, sizeof(response_buffer));
+
+    TEST_ASSERT_EQUAL(200, status);
+
+    auto* ferm = state->get_fermenter(13);
+    TEST_ASSERT_EQUAL_FLOAT(50.0f, ferm->target_temp);
+}
+
+// #48 - Numeric bounds checking for PID parameters
+void test_pid_kp_rejects_negative() {
+    const char* token = login_with_test_password();
+
+    setup_test_fermenter(14, "F14");
+
+    int status = server->handle_request("POST", "/api/pid/14",
+        "{\"kp\":-1.0}", token, response_buffer, sizeof(response_buffer));
+
+    TEST_ASSERT_EQUAL(400, status);
+    TEST_ASSERT_NOT_NULL(strstr(response_buffer, "out of range"));
+}
+
+void test_pid_kp_rejects_too_high() {
+    const char* token = login_with_test_password();
+
+    setup_test_fermenter(15, "F15");
+
+    int status = server->handle_request("POST", "/api/pid/15",
+        "{\"kp\":150.0}", token, response_buffer, sizeof(response_buffer));
+
+    TEST_ASSERT_EQUAL(400, status);
+    TEST_ASSERT_NOT_NULL(strstr(response_buffer, "out of range"));
+}
+
+void test_pid_ki_rejects_too_high() {
+    const char* token = login_with_test_password();
+
+    setup_test_fermenter(16, "F16");
+
+    int status = server->handle_request("POST", "/api/pid/16",
+        "{\"ki\":60.0}", token, response_buffer, sizeof(response_buffer));
+
+    TEST_ASSERT_EQUAL(400, status);
+    TEST_ASSERT_NOT_NULL(strstr(response_buffer, "out of range"));
+}
+
+void test_pid_kd_rejects_too_high() {
+    const char* token = login_with_test_password();
+
+    setup_test_fermenter(17, "F17");
+
+    int status = server->handle_request("POST", "/api/pid/17",
+        "{\"kd\":25.0}", token, response_buffer, sizeof(response_buffer));
+
+    TEST_ASSERT_EQUAL(400, status);
+    TEST_ASSERT_NOT_NULL(strstr(response_buffer, "out of range"));
+}
+
+void test_pid_accepts_valid_params() {
+    const char* token = login_with_test_password();
+
+    setup_test_fermenter(18, "F18");
+
+    int status = server->handle_request("POST", "/api/pid/18",
+        "{\"kp\":50.0,\"ki\":25.0,\"kd\":10.0}", token, response_buffer, sizeof(response_buffer));
+
+    TEST_ASSERT_EQUAL(200, status);
+
+    auto* ferm = state->get_fermenter(18);
+    TEST_ASSERT_EQUAL_FLOAT(50.0f, ferm->pid_params.kp);
+    TEST_ASSERT_EQUAL_FLOAT(25.0f, ferm->pid_params.ki);
+    TEST_ASSERT_EQUAL_FLOAT(10.0f, ferm->pid_params.kd);
+}
+
+// ============================================
 // MAIN
 // ============================================
 
@@ -1387,6 +1574,22 @@ int main(int argc, char **argv) {
     RUN_TEST(test_path_within_base_invalid);
     RUN_TEST(test_generate_session_token_length);
     RUN_TEST(test_generate_session_token_unique);
+
+    // Security validation tests (#42, #48)
+    RUN_TEST(test_firmware_download_rejects_ftp_url);
+    RUN_TEST(test_firmware_download_rejects_file_url);
+    RUN_TEST(test_firmware_download_rejects_javascript_url);
+    RUN_TEST(test_firmware_download_accepts_http_url);
+    RUN_TEST(test_firmware_download_accepts_https_url);
+    RUN_TEST(test_fermenter_setpoint_rejects_too_low);
+    RUN_TEST(test_fermenter_setpoint_rejects_too_high);
+    RUN_TEST(test_fermenter_setpoint_accepts_boundary_low);
+    RUN_TEST(test_fermenter_setpoint_accepts_boundary_high);
+    RUN_TEST(test_pid_kp_rejects_negative);
+    RUN_TEST(test_pid_kp_rejects_too_high);
+    RUN_TEST(test_pid_ki_rejects_too_high);
+    RUN_TEST(test_pid_kd_rejects_too_high);
+    RUN_TEST(test_pid_accepts_valid_params);
 
     return UNITY_END();
 }

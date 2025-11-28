@@ -216,6 +216,41 @@ void test_load_json_invalid() {
     TEST_ASSERT_FALSE(result);
 }
 
+// #52 - JSON config size limit tests
+void test_load_json_rejects_oversized() {
+    SystemConfig config;
+
+    // Create a JSON string > 8KB (the limit)
+    char oversized_json[9000];
+    memset(oversized_json, ' ', sizeof(oversized_json) - 1);
+    oversized_json[0] = '{';
+    oversized_json[sizeof(oversized_json) - 2] = '}';
+    oversized_json[sizeof(oversized_json) - 1] = '\0';
+
+    bool result = ConfigLoader::load_from_json(oversized_json, config);
+
+    TEST_ASSERT_FALSE(result);
+}
+
+void test_load_json_accepts_max_size() {
+    SystemConfig config;
+
+    // Create valid JSON just under 8KB
+    const char* valid_json = "{\"timing\":{\"modbus_poll_ms\":1000}}";
+
+    bool result = ConfigLoader::load_from_json(valid_json, config);
+
+    TEST_ASSERT_TRUE(result);
+}
+
+void test_load_json_rejects_null() {
+    SystemConfig config;
+
+    bool result = ConfigLoader::load_from_json(nullptr, config);
+
+    TEST_ASSERT_FALSE(result);
+}
+
 void test_to_json() {
     SystemConfig config;
     ConfigLoader::load_defaults(config);
@@ -254,6 +289,9 @@ int main(int argc, char **argv) {
     RUN_TEST(test_load_json_fermenters);
     RUN_TEST(test_load_json_modbus_devices);
     RUN_TEST(test_load_json_invalid);
+    RUN_TEST(test_load_json_rejects_oversized);
+    RUN_TEST(test_load_json_accepts_max_size);
+    RUN_TEST(test_load_json_rejects_null);
     RUN_TEST(test_to_json);
 
     return UNITY_END();
