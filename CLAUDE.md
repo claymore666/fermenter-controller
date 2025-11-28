@@ -416,20 +416,46 @@ EOF
 | `data/` (HTML, CSS, JS) | `pio run -e esp32_wifi -t uploadfs` |
 | Both | Both commands |
 
-### Release Workflow
+### Git Branching Strategy
 
-For releases (merging dev → main):
+| Branch | Purpose |
+|--------|---------|
+| `main` | Production releases only, always stable |
+| `dev` | Integration branch, latest development |
+| `release/vX.Y.Z` | Milestone work, created from dev |
 
-1. **Run full test suite**: `pio test -e simulator`
-2. **Build all targets**:
+### Milestone Development Workflow
+
+1. **Start milestone**: Create release branch from dev
    ```bash
-   pio run -e esp32_wifi
-   pio run -e esp32
+   git checkout dev && git pull
+   git checkout -b release/vX.Y.Z
+   git push -u origin release/vX.Y.Z
    ```
-3. **Flash and verify boot** (see above)
-4. **Test key functionality** via web interface
-5. **Create PR** from `dev` to `main`
-6. **Tag release** on main: `git tag v0.1.0 && git push --tags`
+
+2. **Work on issues**: Direct commits to release branch (no sub-branches for small milestones)
+
+3. **Complete milestone** (user-triggered):
+   ```bash
+   # Test
+   pio test -e simulator
+   pio run -e esp32_wifi
+
+   # PR to main
+   gh pr create --base main --head release/vX.Y.Z --title "Release vX.Y.Z"
+   gh pr merge <NUM> --merge
+
+   # Tag and release
+   git checkout main && git pull
+   git tag vX.Y.Z -m "Release vX.Y.Z"
+   git push origin vX.Y.Z
+   gh release create vX.Y.Z --title "vX.Y.Z - Title" --notes "..."
+
+   # Sync and cleanup
+   git checkout dev && git merge main && git push
+   git branch -d release/vX.Y.Z
+   git push origin --delete release/vX.Y.Z
+   ```
 
 ### Boot Success Indicators
 

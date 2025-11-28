@@ -82,7 +82,8 @@ struct OtaProgress {
         , bytes_received(0)
         , bytes_total(0)
         , percent(0) {
-        strcpy(status_message, "Idle");
+        status_message[0] = '\0';
+        set_status("Idle");
     }
 
     void reset() {
@@ -90,7 +91,7 @@ struct OtaProgress {
         bytes_received = 0;
         bytes_total = 0;
         percent = 0;
-        strcpy(status_message, "Idle");
+        set_status("Idle");
     }
 
     void update_progress() {
@@ -99,6 +100,11 @@ struct OtaProgress {
         } else {
             percent = 0;
         }
+    }
+
+    void set_status(const char* msg) {
+        strncpy(status_message, msg, sizeof(status_message) - 1);
+        status_message[sizeof(status_message) - 1] = '\0';
     }
 };
 
@@ -217,7 +223,7 @@ public:
         progress_.state = OtaState::PREPARING;
         progress_.bytes_total = firmware_size;
         progress_.bytes_received = 0;
-        strcpy(progress_.status_message, "Preparing...");
+        progress_.set_status( "Preparing...");
 
         // Pause system activities (MODBUS, PID, WebSocket, etc.)
         if (system_callback_) {
@@ -230,7 +236,7 @@ public:
         if (!update_partition_) {
             state_ = OtaState::FAILED;
             progress_.state = OtaState::FAILED;
-            strcpy(progress_.status_message, "No OTA partition found");
+            progress_.set_status( "No OTA partition found");
             resume_system();
             unlock();
             result.set_error("No OTA partition available");
@@ -246,7 +252,7 @@ public:
         if (firmware_size > 0 && firmware_size > update_partition_->size) {
             state_ = OtaState::FAILED;
             progress_.state = OtaState::FAILED;
-            strcpy(progress_.status_message, "Firmware too large");
+            progress_.set_status( "Firmware too large");
             resume_system();
             unlock();
             result.set_error("Firmware exceeds partition size");
@@ -270,7 +276,7 @@ public:
 
         state_ = OtaState::RECEIVING;
         progress_.state = OtaState::RECEIVING;
-        strcpy(progress_.status_message, "Receiving firmware...");
+        progress_.set_status( "Receiving firmware...");
 
         unlock();
         result.set_success("OTA update started");
@@ -354,7 +360,7 @@ public:
 
         state_ = OtaState::VERIFYING;
         progress_.state = OtaState::VERIFYING;
-        strcpy(progress_.status_message, "Verifying firmware...");
+        progress_.set_status( "Verifying firmware...");
 
         // Finalize OTA (validates image)
         esp_err_t err = esp_ota_end(ota_handle_);
@@ -364,7 +370,7 @@ public:
             state_ = OtaState::FAILED;
             progress_.state = OtaState::FAILED;
             if (err == ESP_ERR_OTA_VALIDATE_FAILED) {
-                strcpy(progress_.status_message, "Invalid firmware image");
+                progress_.set_status( "Invalid firmware image");
                 result.set_error("Firmware validation failed");
             } else {
                 snprintf(progress_.status_message, sizeof(progress_.status_message),
@@ -392,7 +398,7 @@ public:
         state_ = OtaState::COMPLETE;
         progress_.state = OtaState::COMPLETE;
         progress_.percent = 100;
-        strcpy(progress_.status_message, "Update complete, reboot required");
+        progress_.set_status( "Update complete, reboot required");
 
         ESP_LOGI("OTA", "Firmware update complete, new boot partition: %s",
                  update_partition_->label);
@@ -426,7 +432,7 @@ public:
 
         state_ = OtaState::FAILED;
         progress_.state = OtaState::FAILED;
-        strcpy(progress_.status_message, "Update aborted");
+        progress_.set_status( "Update aborted");
 
         resume_system();
 
@@ -567,7 +573,7 @@ public:
         progress_.state = OtaState::PREPARING;
         progress_.bytes_total = 0;
         progress_.bytes_received = 0;
-        strcpy(progress_.status_message, "Starting download task...");
+        progress_.set_status( "Starting download task...");
 
         ESP_LOGI("OTA", "Starting OTA download task for: %s", download_url_);
 
@@ -584,7 +590,7 @@ public:
         if (ret != pdPASS) {
             state_ = OtaState::FAILED;
             progress_.state = OtaState::FAILED;
-            strcpy(progress_.status_message, "Failed to create download task");
+            progress_.set_status( "Failed to create download task");
             unlock();
             result.set_error("Failed to create download task");
             return result;
@@ -617,8 +623,10 @@ public:
             esp_app_desc_t desc;
             if (esp_ota_get_partition_description(running_part, &desc) == ESP_OK) {
                 strncpy(running.app_version, desc.version, sizeof(running.app_version) - 1);
+                running.app_version[sizeof(running.app_version) - 1] = '\0';
             } else {
-                strcpy(running.app_version, VERSION_STRING);
+                strncpy(running.app_version, VERSION_STRING, sizeof(running.app_version) - 1);
+                running.app_version[sizeof(running.app_version) - 1] = '\0';
             }
         }
 
@@ -633,24 +641,30 @@ public:
             esp_app_desc_t desc;
             if (esp_ota_get_partition_description(other_part, &desc) == ESP_OK) {
                 strncpy(other.app_version, desc.version, sizeof(other.app_version) - 1);
+                other.app_version[sizeof(other.app_version) - 1] = '\0';
                 other.is_valid = true;
             } else {
-                strcpy(other.app_version, "(empty)");
+                strncpy(other.app_version, "(empty)", sizeof(other.app_version) - 1);
+                other.app_version[sizeof(other.app_version) - 1] = '\0';
                 other.is_valid = false;
             }
         }
 #else
-        strcpy(running.label, "app0");
+        strncpy(running.label, "app0", sizeof(running.label) - 1);
+        running.label[sizeof(running.label) - 1] = '\0';
         running.address = 0x10000;
         running.size = 4 * 1024 * 1024;
-        strcpy(running.app_version, VERSION_STRING);
+        strncpy(running.app_version, VERSION_STRING, sizeof(running.app_version) - 1);
+        running.app_version[sizeof(running.app_version) - 1] = '\0';
         running.is_running = true;
         running.is_valid = true;
 
-        strcpy(other.label, "app1");
+        strncpy(other.label, "app1", sizeof(other.label) - 1);
+        other.label[sizeof(other.label) - 1] = '\0';
         other.address = 0x410000;
         other.size = 4 * 1024 * 1024;
-        strcpy(other.app_version, "(simulator)");
+        strncpy(other.app_version, "(simulator)", sizeof(other.app_version) - 1);
+        other.app_version[sizeof(other.app_version) - 1] = '\0';
         other.is_running = false;
         other.is_valid = false;
 #endif
@@ -759,7 +773,7 @@ private:
 
         state_ = OtaState::DOWNLOADING;
         progress_.state = OtaState::DOWNLOADING;
-        strcpy(progress_.status_message, "Connecting...");
+        progress_.set_status( "Connecting...");
 
         // Start OTA download
         esp_https_ota_handle_t https_ota_handle = NULL;
@@ -782,7 +796,7 @@ private:
             ESP_LOGI("OTA", "Firmware size: %d bytes", image_size);
         }
 
-        strcpy(progress_.status_message, "Downloading...");
+        progress_.set_status( "Downloading...");
 
         // Download and flash in chunks
         while (true) {
@@ -815,7 +829,7 @@ private:
         // Verify and finish
         state_ = OtaState::VERIFYING;
         progress_.state = OtaState::VERIFYING;
-        strcpy(progress_.status_message, "Verifying...");
+        progress_.set_status( "Verifying...");
 
         err = esp_https_ota_finish(https_ota_handle);
         if (err != ESP_OK) {
@@ -833,7 +847,7 @@ private:
         state_ = OtaState::COMPLETE;
         progress_.state = OtaState::COMPLETE;
         progress_.percent = 100;
-        strcpy(progress_.status_message, "Complete! Rebooting...");
+        progress_.set_status( "Complete! Rebooting...");
         ESP_LOGI("OTA", "OTA download complete, rebooting...");
 
         download_task_ = nullptr;

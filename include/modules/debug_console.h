@@ -1758,10 +1758,11 @@ private:
                 if (i > 2) msg[pos++] = ' ';
                 int len = strlen(args[i]);
                 if (pos + len < 250) {
-                    strcpy(msg + pos, args[i]);
+                    memcpy(msg + pos, args[i], len);
                     pos += len;
                 }
             }
+            msg[pos] = '\0';
             ws_mgr->broadcast_text(msg);
             printf("Broadcast sent: %s\r\n", msg);
         } else {
