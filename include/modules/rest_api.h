@@ -90,21 +90,34 @@ public:
 
         if (strncmp(path, "/relays/", 8) == 0) {
             const char* relay_path = path + 8;
-            if (strstr(relay_path, "/on") && method == HttpMethod::POST) {
-                char name[32];
-                core::safe_strncpy(name, relay_path, sizeof(name));
-                char* slash = strchr(name, '/');
-                if (slash) *slash = '\0';
-                handle_relay_on(name, response);
-                return;
+            size_t path_len = strlen(relay_path);
+
+            // Check for exact /on suffix (not substring)
+            bool ends_with_on = path_len >= 3 &&
+                strcmp(relay_path + path_len - 3, "/on") == 0;
+            // Check for exact /off suffix (not substring)
+            bool ends_with_off = path_len >= 4 &&
+                strcmp(relay_path + path_len - 4, "/off") == 0;
+
+            if (ends_with_on && method == HttpMethod::POST) {
+                // Extract relay name (path without /on suffix)
+                char name[32] = {0};
+                size_t name_len = path_len - 3;
+                if (name_len > 0 && name_len < sizeof(name)) {
+                    memcpy(name, relay_path, name_len);
+                    handle_relay_on(name, response);
+                    return;
+                }
             }
-            if (strstr(relay_path, "/off") && method == HttpMethod::POST) {
-                char name[32];
-                core::safe_strncpy(name, relay_path, sizeof(name));
-                char* slash = strchr(name, '/');
-                if (slash) *slash = '\0';
-                handle_relay_off(name, response);
-                return;
+            if (ends_with_off && method == HttpMethod::POST) {
+                // Extract relay name (path without /off suffix)
+                char name[32] = {0};
+                size_t name_len = path_len - 4;
+                if (name_len > 0 && name_len < sizeof(name)) {
+                    memcpy(name, relay_path, name_len);
+                    handle_relay_off(name, response);
+                    return;
+                }
             }
         }
 
