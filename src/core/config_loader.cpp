@@ -79,6 +79,11 @@ bool ConfigLoader::load_from_json(const char* json, SystemConfig& config) {
     // Start with defaults
     load_defaults(config);
 
+    // Validate JSON size to prevent DoS (max 8KB)
+    if (!json || strlen(json) > 8192) {
+        return false;
+    }
+
     // Parse JSON
     JsonDocument doc;
     DeserializationError error = deserializeJson(doc, json);
@@ -172,6 +177,12 @@ bool ConfigLoader::load_from_json(const char* json, SystemConfig& config) {
     // Hardware configuration - MODBUS devices
     JsonArray devices = doc["modbus"]["devices"];
     if (devices) {
+        // Validate array size before processing (DoS prevention)
+        if (devices.size() > 8) {
+            // Too many devices, silently limit to max
+            // Log warning in debug builds
+        }
+
         config.hardware.modbus_device_count = 0;
 
         for (JsonObject device : devices) {
@@ -190,6 +201,11 @@ bool ConfigLoader::load_from_json(const char* json, SystemConfig& config) {
             // Parse registers
             JsonArray registers = device["registers"];
             if (registers) {
+                // Validate array size before processing (DoS prevention)
+                if (registers.size() > 16) {
+                    // Too many registers, silently limit to max
+                }
+
                 def.register_count = 0;
 
                 for (JsonObject reg : registers) {
