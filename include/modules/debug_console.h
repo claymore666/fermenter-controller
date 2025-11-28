@@ -28,6 +28,9 @@
 #ifdef ETHERNET_ENABLED
 #include "hal/esp32/esp32_ethernet.h"
 #endif
+#ifdef WEBSOCKET_ENABLED
+#include "modules/http_server.h"
+#endif
 #endif
 
 // Version info
@@ -72,6 +75,7 @@ public:
         , can_module_(can_module)
         , status_led_(status_led)
         , ethernet_(ethernet)
+        , http_server_(nullptr)
         , cmd_index_(0)
         , echo_enabled_(true)
         , log_events_(false)
@@ -88,6 +92,13 @@ public:
     void initialize(uint32_t baud = 115200) {
         serial_->begin(baud);
         print_welcome();
+    }
+
+    /**
+     * Set HTTP server reference for WebSocket commands
+     */
+    void set_http_server(void* http_server) {
+        http_server_ = http_server;
     }
 
     /**
@@ -153,6 +164,7 @@ private:
     void* can_module_;  // CANModule* when CAN_ENABLED
     StatusLed* status_led_;
     void* ethernet_;    // ESP32Ethernet* when ETHERNET_ENABLED
+    void* http_server_; // HttpServer* when HTTP_ENABLED
 
     char cmd_buffer_[MAX_CMD_LENGTH];
     size_t cmd_index_;
@@ -293,6 +305,8 @@ private:
             cmd_log(argc, args);
         } else if (strcmp(args[0], "ssl") == 0) {
             cmd_ssl(argc, args);
+        } else if (strcmp(args[0], "ws") == 0) {
+            cmd_ws(argc, args);
         } else {
             printf("Unknown command: %s\r\n", args[0]);
             serial_->println("Type 'help' for available commands");
@@ -332,6 +346,7 @@ private:
         serial_->println("  wifi disconnect     - Disconnect (persistent)");
         serial_->println("  wifi set <ssid> <pass> - Set credentials");
         serial_->println("  wifi clear          - Clear credentials & provision");
+        serial_->println("  wifi scan           - Scan for available networks");
         serial_->println("");
         serial_->println("  eth                 - Ethernet status");
         serial_->println("  eth connect         - Start Ethernet interface");
@@ -349,6 +364,10 @@ private:
         serial_->println("  ssl status          - SSL certificate status");
         serial_->println("  ssl clear           - Delete cert (regenerates on reboot)");
         serial_->println("  ssl debug [on|off]  - Toggle TLS handshake messages");
+        serial_->println("");
+        serial_->println("  ws                  - WebSocket status");
+        serial_->println("  ws clients          - List connected clients");
+        serial_->println("  ws broadcast <msg>  - Send message to all clients");
         serial_->println("");
         serial_->println("  cpu                 - CPU usage percentage");
         serial_->println("  inputs              - Show digital inputs DI1-8");
@@ -1013,8 +1032,70 @@ private:
         } else if (strcmp(args[1], "disconnect") == 0) {
             wifi_prov_->disconnect();
             serial_->println("WiFi disconnected (will stay disconnected on reboot)");
+        } else if (strcmp(args[1], "scan") == 0) {
+#ifdef ESP32_BUILD
+            serial_->println("Scanning for WiFi networks...");
+
+            // Configure scan - passive scan is faster and doesn't require TX
+            wifi_scan_config_t scan_config = {};
+            scan_config.ssid = nullptr;
+            scan_config.bssid = nullptr;
+            scan_config.channel = 0;  // All channels
+            scan_config.show_hidden = false;
+            scan_config.scan_type = WIFI_SCAN_TYPE_ACTIVE;
+            scan_config.scan_time.active.min = 100;
+            scan_config.scan_time.active.max = 300;
+
+            esp_err_t err = esp_wifi_scan_start(&scan_config, true);  // Blocking scan
+            if (err != ESP_OK) {
+                printf("Scan failed: %s\r\n", esp_err_to_name(err));
+                return;
+            }
+
+            uint16_t ap_count = 0;
+            esp_wifi_scan_get_ap_num(&ap_count);
+
+            if (ap_count == 0) {
+                serial_->println("No networks found");
+                return;
+            }
+
+            // Limit to 20 networks max
+            if (ap_count > 20) ap_count = 20;
+
+            wifi_ap_record_t* ap_records = (wifi_ap_record_t*)malloc(ap_count * sizeof(wifi_ap_record_t));
+            if (!ap_records) {
+                serial_->println("Memory allocation failed");
+                return;
+            }
+
+            esp_wifi_scan_get_ap_records(&ap_count, ap_records);
+
+            printf("Found %d networks:\r\n", ap_count);
+            for (int i = 0; i < ap_count; i++) {
+                const char* auth_str = "UNKNOWN";
+                switch (ap_records[i].authmode) {
+                    case WIFI_AUTH_OPEN: auth_str = "OPEN"; break;
+                    case WIFI_AUTH_WEP: auth_str = "WEP"; break;
+                    case WIFI_AUTH_WPA_PSK: auth_str = "WPA"; break;
+                    case WIFI_AUTH_WPA2_PSK: auth_str = "WPA2"; break;
+                    case WIFI_AUTH_WPA_WPA2_PSK: auth_str = "WPA/WPA2"; break;
+                    case WIFI_AUTH_WPA3_PSK: auth_str = "WPA3"; break;
+                    case WIFI_AUTH_WPA2_WPA3_PSK: auth_str = "WPA2/WPA3"; break;
+                    default: break;
+                }
+                printf("  %s (%d dBm) %s\r\n",
+                       ap_records[i].ssid,
+                       ap_records[i].rssi,
+                       auth_str);
+            }
+
+            free(ap_records);
+#else
+            serial_->println("WiFi scan only available on ESP32");
+#endif
         } else {
-            serial_->println("Usage: wifi [connect|disconnect|set <ssid> <pass>|clear]");
+            serial_->println("Usage: wifi [connect|disconnect|scan|set <ssid> <pass>|clear]");
         }
     }
 
@@ -1605,6 +1686,69 @@ private:
         } else {
             serial_->println("Unknown ssl subcommand. Use: ssl status | ssl clear | ssl debug");
         }
+    }
+
+    void cmd_ws(int argc, char** args) {
+#if defined(ESP32_BUILD) && defined(WEBSOCKET_ENABLED)
+        if (!http_server_) {
+            serial_->println("HTTP server not available");
+            return;
+        }
+
+        auto* http = static_cast<HttpServer*>(http_server_);
+        auto* ws_mgr = http->get_ws_manager();
+
+        if (!ws_mgr) {
+            serial_->println("WebSocket not enabled");
+            return;
+        }
+
+        if (argc < 2) {
+            // Show status
+            serial_->println("WebSocket Status:");
+            printf("  Enabled: Yes\r\n");
+            printf("  Clients: %d/%d\r\n", ws_mgr->get_client_count(), ws_mgr->get_max_clients());
+            printf("  Initialized: %s\r\n", ws_mgr->is_initialized() ? "Yes" : "No");
+            return;
+        }
+
+        if (strcmp(args[1], "clients") == 0) {
+            int count = ws_mgr->get_client_count();
+            if (count == 0) {
+                serial_->println("No connected clients");
+                return;
+            }
+            printf("Connected clients (%d):\r\n", count);
+            ws_mgr->print_clients([](const char* line) {
+                ::printf("  %s\r\n", line);
+            });
+        } else if (strcmp(args[1], "broadcast") == 0) {
+            if (argc < 3) {
+                serial_->println("Usage: ws broadcast <message>");
+                return;
+            }
+            // Join remaining args into message
+            char msg[256] = {0};
+            int pos = 0;
+            for (int i = 2; i < argc && pos < 250; i++) {
+                if (i > 2) msg[pos++] = ' ';
+                int len = strlen(args[i]);
+                if (pos + len < 250) {
+                    strcpy(msg + pos, args[i]);
+                    pos += len;
+                }
+            }
+            ws_mgr->broadcast_text(msg);
+            printf("Broadcast sent: %s\r\n", msg);
+        } else {
+            serial_->println("WebSocket Commands:");
+            serial_->println("  ws              - Show WebSocket status");
+            serial_->println("  ws clients      - List connected clients");
+            serial_->println("  ws broadcast <msg> - Send message to all clients");
+        }
+#else
+        serial_->println("WebSocket not available (requires ESP32 + WEBSOCKET_ENABLED)");
+#endif
     }
 
     // Public logging methods for other modules to call

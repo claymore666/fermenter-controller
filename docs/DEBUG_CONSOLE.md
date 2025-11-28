@@ -203,6 +203,8 @@ Sent CAN ID 0x123 [3 bytes]
 | Command | Description |
 |---------|-------------|
 | `eth` | Ethernet status (IP, netmask, gateway, link speed) |
+| `eth connect` | Start Ethernet interface and wait for DHCP |
+| `eth disconnect` | Stop Ethernet interface |
 
 Example:
 ```
@@ -213,6 +215,18 @@ Ethernet Status:
   Netmask: 255.255.255.0
   Gateway: 192.168.0.1
   Speed: 100 Mbps
+  MAC: 30:ED:A0:23:07:78
+
+Commands: eth connect | eth disconnect
+
+> eth disconnect
+Stopping Ethernet...
+Ethernet stopped
+
+> eth connect
+Starting Ethernet...
+Ethernet started. Waiting for DHCP...
+Connected! IP: 192.168.0.140
 ```
 
 ### WiFi
@@ -220,8 +234,10 @@ Ethernet Status:
 | Command | Description |
 |---------|-------------|
 | `wifi` | Show WiFi status (SSID, IP, signal strength, standby state) |
+| `wifi connect` | Connect to WiFi (uses stored credentials) |
+| `wifi disconnect` | Disconnect from WiFi (persistent) |
 | `wifi set <ssid> <password>` | Set WiFi credentials |
-| `wifi clear` | Clear stored credentials |
+| `wifi clear` | Clear stored credentials and start provisioning |
 | `wifi scan` | Scan for available networks |
 
 Example:
@@ -239,11 +255,11 @@ WiFi Status:
   SSID: Braustube
 
 > wifi scan
-Scanning...
+Scanning for WiFi networks...
 Found 3 networks:
   Braustube (-45 dBm) WPA2
-  Guest (-72 dBm) Open
-  Neighbor (-85 dBm) WPA2
+  Guest (-72 dBm) OPEN
+  Neighbor (-85 dBm) WPA2/WPA3
 ```
 
 **Note**: When Ethernet is connected on the same network, WiFi enters STANDBY mode. It remains ready for fast failover if Ethernet link goes down.
@@ -252,13 +268,22 @@ Found 3 networks:
 
 | Command | Description |
 |---------|-------------|
+| `ssl` | Show SSL command help |
 | `ssl status` | Show certificate status and size |
 | `ssl clear` | Delete certificate (regenerates on reboot) |
+| `ssl debug on` | Enable TLS debug logging |
+| `ssl debug off` | Disable TLS debug logging |
 
 Example:
 ```
 > ssl status
 Certificate: stored (cert=1193 bytes, key=1676 bytes)
+
+> ssl debug on
+TLS debug logging enabled
+
+> ssl debug off
+TLS debug logging disabled
 
 > ssl clear
 Clearing SSL certificate from NVS...
@@ -271,7 +296,8 @@ Reboot to regenerate certificate
 | Command | Description |
 |---------|-------------|
 | `nvs` | Show NVS usage and available namespaces |
-| `nvs list` | List all namespaces |
+| `nvs list` | List known namespaces |
+| `nvs list <namespace>` | List all keys within a namespace |
 | `nvs get <ns>:<key>` | Read a specific key |
 | `nvs set <ns>:<key> <value>` | Write a value |
 | `nvs erase <ns>:<key>` | Delete a specific key |
@@ -280,17 +306,26 @@ Reboot to regenerate certificate
 - `wifi` - WiFi credentials (ssid, password, auto_connect)
 - `fermenter` - Device config (admin_pw, ssl:cert, ssl:key)
 - `config` - User settings
+- `nvs.net80211` - WiFi driver state (internal)
 
 Example:
 ```
+> nvs list
+NVS namespaces:
+  wifi       - WiFi credentials
+  fermenter  - SSL certs, auth, plans
+  nvs.net80211 - WiFi driver state
+
+Use 'nvs list <namespace>' to show keys
+
+> nvs list wifi
+Keys in namespace 'wifi':
+  ssid (STR)
+  password (STR)
+  auto_connect (I32)
+
 > nvs get wifi:ssid
 wifi:ssid = "Braustube"
-
-> nvs list
-NVS Namespaces:
-  wifi
-  fermenter
-  config
 ```
 
 ### CPU Usage
@@ -303,6 +338,31 @@ Example:
 ```
 > cpu
 CPU Usage: 0.2%
+```
+
+### WebSocket
+
+| Command | Description |
+|---------|-------------|
+| `ws` | Show WebSocket status (enabled, client count, initialized) |
+| `ws clients` | List connected clients with session tokens and last activity |
+| `ws broadcast <msg>` | Send text message to all authenticated clients |
+
+Example:
+```
+> ws
+WebSocket Status:
+  Enabled: Yes
+  Clients: 2/4
+  Initialized: Yes
+
+> ws clients
+Connected clients (2):
+  [0] fd=60 session=35b6e498... last=5807ms
+  [1] fd=61 session=35b6e498... last=4327ms
+
+> ws broadcast Hello from debug console!
+Broadcast sent to 2 clients
 ```
 
 ### Factory Reset
@@ -331,7 +391,7 @@ src/
 
 test/
   test_debug_console/
-    test_debug_console.cpp    # 24 unit tests
+    test_debug_console.cpp    # 27 unit tests
 ```
 
 ## ESP32 Serial Options

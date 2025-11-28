@@ -97,6 +97,7 @@ cd modbus_simulator && python simulator.py
 - CAN bus communication (TWAI at 500kbps)
 - Ethernet connectivity (W5500 SPI on GPIO12-16, GPIO39)
 - Network failover (WiFi standby when Ethernet on same network)
+- WebSocket real-time push updates (event-driven sensor/relay/alarm notifications)
 
 ### Not Implemented
 - MQTT client
@@ -174,6 +175,7 @@ Typical CPU usage when idle: ~0.2%
 | `ETHERNET_ENABLED` | Ethernet connectivity (W5500 SPI) |
 | `CAN_ENABLED` | CAN bus communication (TWAI) |
 | `HTTP_ENABLED` | HTTP server + REST API |
+| `WEBSOCKET_ENABLED` | WebSocket real-time push updates (requires HTTP_ENABLED) |
 | `CERT_GENERATION_ENABLED` | Per-device SSL certificate generation |
 | `MQTT_ENABLED` | MQTT client (not implemented) |
 
@@ -431,3 +433,4 @@ The boot verification script looks for these in serial output:
 | `Guru Meditation` | **CRASH** - boot failed |
 | `panic` | **CRASH** - boot failed |
 | `watchdog` | **TIMEOUT** - possible hang |
+- remember that we have a sdkconfig of our own not a default from platformio

@@ -803,6 +803,200 @@
             reloadThreshold: 5       // Reload after 5 failures (~26s) to force DNS refresh
         };
 
+        // WebSocket state
+        const wsState = {
+            socket: null,
+            connected: false,
+            authenticated: false,
+            reconnectAttempts: 0,
+            maxReconnectAttempts: 5,
+            reconnectDelay: 1000,
+            reconnectTimer: null,
+            available: false  // Set after checking /api/info
+        };
+
+        // WebSocket connection
+        function connectWebSocket() {
+            if (!authToken || !wsState.available) return;
+            if (wsState.socket && wsState.socket.readyState === WebSocket.OPEN) return;
+
+            const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
+            console.log('WebSocket: Connecting...');
+
+            try {
+                wsState.socket = new WebSocket(protocol + '//' + location.host + '/ws');
+            } catch (e) {
+                console.error('WebSocket: Failed to create connection:', e);
+                wsState.available = false;
+                startPolling();
+                return;
+            }
+
+            wsState.socket.onopen = () => {
+                console.log('WebSocket: Connected, authenticating...');
+                wsState.socket.send(JSON.stringify({ type: 'auth', token: authToken }));
+            };
+
+            wsState.socket.onmessage = (event) => {
+                try {
+                    const msg = JSON.parse(event.data);
+                    handleWsMessage(msg);
+                } catch (e) {
+                    console.error('WebSocket: Invalid message:', e);
+                }
+            };
+
+            wsState.socket.onclose = (event) => {
+                console.log('WebSocket: Closed (code=' + event.code + ')');
+                wsState.connected = false;
+                wsState.authenticated = false;
+                updateWsConnectionStatus();
+
+                // Don't reconnect on auth failure (code 1008) or normal closure
+                if (event.code !== 1000 && event.code !== 1008) {
+                    scheduleWsReconnect();
+                } else if (event.code === 1008) {
+                    // Auth failed - fall back to polling
+                    console.log('WebSocket: Auth failed, falling back to polling');
+                    wsState.available = false;
+                    startPolling();
+                }
+            };
+
+            wsState.socket.onerror = (error) => {
+                console.error('WebSocket: Error:', error);
+            };
+        }
+
+        function scheduleWsReconnect() {
+            if (wsState.reconnectTimer) return;
+            if (wsState.reconnectAttempts >= wsState.maxReconnectAttempts) {
+                console.log('WebSocket: Max reconnect attempts reached, falling back to polling');
+                wsState.available = false;
+                startPolling();
+                return;
+            }
+
+            wsState.reconnectAttempts++;
+            const delay = wsState.reconnectDelay * Math.pow(1.5, wsState.reconnectAttempts - 1);
+            console.log('WebSocket: Reconnecting in ' + Math.round(delay) + 'ms (attempt ' + wsState.reconnectAttempts + ')');
+
+            wsState.reconnectTimer = setTimeout(() => {
+                wsState.reconnectTimer = null;
+                connectWebSocket();
+            }, delay);
+        }
+
+        function closeWebSocket() {
+            if (wsState.reconnectTimer) {
+                clearTimeout(wsState.reconnectTimer);
+                wsState.reconnectTimer = null;
+            }
+            if (wsState.socket) {
+                wsState.socket.close();
+                wsState.socket = null;
+            }
+            wsState.connected = false;
+            wsState.authenticated = false;
+        }
+
+        function handleWsMessage(msg) {
+            switch (msg.type) {
+                case 'auth_required':
+                    // Server requests authentication
+                    if (authToken) {
+                        wsState.socket.send(JSON.stringify({ type: 'auth', token: authToken }));
+                    }
+                    break;
+
+                case 'auth_ok':
+                    console.log('WebSocket: Authenticated');
+                    wsState.connected = true;
+                    wsState.authenticated = true;
+                    wsState.reconnectAttempts = 0;
+                    updateWsConnectionStatus();
+                    // Stop polling - WebSocket takes over
+                    stopPolling();
+                    break;
+
+                case 'auth_failed':
+                    console.log('WebSocket: Authentication failed');
+                    wsState.socket.close(1008, 'Auth failed');
+                    break;
+
+                case 'full':
+                    // Full state update (on initial connect)
+                    if (msg.sensors) updateSensors(msg.sensors);
+                    if (msg.relays) updateRelays(msg.relays);
+                    if (msg.alarms) updateAlarms(msg.alarms);
+                    break;
+
+                case 'sensor':
+                    // Incremental sensor update
+                    updateSingleSensor(msg.id, msg.value, msg.quality);
+                    break;
+
+                case 'relay':
+                    // Incremental relay update
+                    updateSingleRelay(msg.id, msg.state);
+                    break;
+
+                case 'alarm':
+                    // Alarm update - refresh full alarms from API
+                    // (WebSocket sends minimal info, get full state)
+                    api('/alarms').then(data => updateAlarms(data)).catch(() => {});
+                    break;
+
+                default:
+                    console.log('WebSocket: Unknown message type:', msg.type);
+            }
+        }
+
+        function updateWsConnectionStatus() {
+            const statusEl = document.getElementById('connectionStatus');
+            if (wsState.connected && wsState.authenticated) {
+                statusEl.textContent = 'Live';
+                statusEl.className = 'nav-item badge bg-success me-2';
+            } else if (wsState.socket && wsState.socket.readyState === WebSocket.CONNECTING) {
+                statusEl.textContent = 'Connecting...';
+                statusEl.className = 'nav-item badge bg-warning me-2';
+            }
+        }
+
+        // Incremental update functions for WebSocket
+        function updateSingleSensor(id, value, quality) {
+            const row = document.querySelector('[data-sensor-id="' + id + '"]');
+            if (row) {
+                const valueEl = row.querySelector('.sensor-value');
+                if (valueEl) valueEl.textContent = value.toFixed(2);
+
+                const qualityEl = row.querySelector('.sensor-quality');
+                if (qualityEl) {
+                    qualityEl.textContent = quality;
+                    qualityEl.className = 'badge sensor-quality ' +
+                        (quality === 'GOOD' ? 'bg-success' : quality === 'BAD' ? 'bg-danger' : 'bg-warning');
+                }
+            }
+        }
+
+        function updateSingleRelay(id, state) {
+            const btn = document.querySelector('[data-relay-id="' + id + '"]');
+            if (btn) {
+                btn.textContent = state ? 'ON' : 'OFF';
+                btn.className = 'btn btn-sm ' + (state ? 'relay-on' : 'relay-off');
+            }
+        }
+
+        function startPolling() {
+            if (refreshActive) return;
+            refreshActive = true;
+            scheduleNextRefresh();
+        }
+
+        function stopPolling() {
+            refreshActive = false;
+        }
+
         function updateConnectionInterval() {
             if (connectionState.failureCount === 0) {
                 connectionState.currentInterval = connectionState.baseInterval;
@@ -822,7 +1016,7 @@
             }, connectionState.currentInterval);
         }
 
-        function showApp() {
+        async function showApp() {
             document.getElementById('setup').style.display = 'none';
             document.getElementById('login').style.display = 'none';
             document.getElementById('app').style.display = 'block';
@@ -831,9 +1025,21 @@
                 document.getElementById('loading-overlay').style.display = 'block';
                 document.querySelectorAll('.panel').forEach(p => p.style.display = 'none');
             }
-            // Stagger initial requests to avoid overwhelming TLS sessions
-            refreshActive = true;
+
+            // Check if WebSocket is available
+            try {
+                const info = await fetch(API_BASE + '/info').then(r => r.json());
+                wsState.available = info.websocket === true;
+                console.log('WebSocket available:', wsState.available);
+            } catch (e) {
+                console.log('Could not check WebSocket availability, using polling');
+                wsState.available = false;
+            }
+
+            // Initial data load via REST API (always needed for full dashboard)
             refreshAll();
+
+            // Stagger history requests to avoid overwhelming TLS sessions
             setTimeout(() => {
                 refreshCpuHistory();
                 cpuGraphInterval = setInterval(refreshCpuHistory, 15000);
@@ -842,8 +1048,24 @@
                 refreshNetworkHistory();
                 networkGraphInterval = setInterval(refreshNetworkHistory, 15000);
             }, 2000);
-            // Start adaptive refresh loop after initial dashboard load
-            setTimeout(scheduleNextRefresh, 3000);
+
+            // Try WebSocket for real-time updates, fall back to polling
+            if (wsState.available) {
+                setTimeout(() => {
+                    connectWebSocket();
+                    // Give WebSocket 3 seconds to connect, then fall back to polling if not connected
+                    setTimeout(() => {
+                        if (!wsState.connected) {
+                            console.log('WebSocket not connected after 3s, starting polling as backup');
+                            startPolling();
+                        }
+                    }, 3000);
+                }, 500);
+            } else {
+                // No WebSocket - use polling
+                refreshActive = true;
+                setTimeout(scheduleNextRefresh, 3000);
+            }
         }
 
         function showError(msg) {
@@ -1011,15 +1233,15 @@
                 const safeValue = !isNaN(s.value) ? s.value.toFixed(2) : '0.00';
 
                 return `
-                <tr id="sensor-row-${idx}">
+                <tr id="sensor-row-${idx}" data-sensor-id="${idx}">
                     <td><strong>${safeName}</strong></td>
                     <td><span class="badge bg-secondary">${safeModbusAddr}</span></td>
                     <td>
                         <span class="${s.quality === 'GOOD' ? 'status-good' : 'status-warning'}">
-                            ${safeValue} ${safeUnit}
+                            <span class="sensor-value">${safeValue}</span> ${safeUnit}
                         </span>
                     </td>
-                    <td><span class="badge ${s.quality === 'GOOD' ? 'bg-success' : 'bg-warning'}">${safeQuality}</span></td>
+                    <td><span class="badge sensor-quality ${s.quality === 'GOOD' ? 'bg-success' : 'bg-warning'}">${safeQuality}</span></td>
                     <td>
                         <select class="form-select form-select-sm" id="sensor-type-${idx}" disabled>
                             <option value="pressure_0_1.6" ${safeType === 'pressure_0_1.6' ? 'selected' : ''}>Pressure 0-1.6 bar</option>
@@ -1104,6 +1326,7 @@
                         <div class="card-body text-center">
                             <h6>${safeName}</h6>
                             <button class="btn ${r.state ? 'relay-on' : 'relay-off'} w-100"
+                                    data-relay-id="${idx}"
                                     onclick="toggleRelay('${safeNameAttr}', ${!r.state})">
                                 ${r.state ? 'ON' : 'OFF'}
                             </button>

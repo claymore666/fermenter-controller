@@ -503,6 +503,108 @@ Set digital output state.
 }
 ```
 
+### WebSocket
+
+#### GET /ws
+Establish a WebSocket connection for real-time updates. Requires authentication via session token.
+
+**Connection:**
+```
+wss://192.168.0.142/ws
+```
+
+**Authentication (required within 5 seconds):**
+```json
+{"type": "auth", "token": "your_session_token"}
+```
+
+**Response (success):**
+```json
+{"type": "auth_ok"}
+```
+
+**Response (failure):**
+```json
+{"type": "error", "message": "Invalid token"}
+```
+
+**Message Types (Server → Client):**
+
+| Type | Description |
+|------|-------------|
+| `auth_ok` | Authentication successful |
+| `full` | Full state snapshot (sent after auth and periodically) |
+| `sensor` | Sensor value change (significant change only) |
+| `relay` | Relay state change |
+| `alarm` | Alarm notification |
+| `ping` | Keep-alive (30s interval) |
+| `error` | Error message |
+
+**Full State Message:**
+```json
+{
+  "type": "full",
+  "sensors": [
+    {"id": 0, "value": 18.5, "quality": "GOOD"}
+  ],
+  "relays": [
+    {"id": 0, "state": true}
+  ]
+}
+```
+
+**Sensor Update Message:**
+```json
+{
+  "type": "sensor",
+  "id": 0,
+  "value": 18.7,
+  "quality": "GOOD"
+}
+```
+
+**Relay Update Message:**
+```json
+{
+  "type": "relay",
+  "id": 0,
+  "state": false
+}
+```
+
+**Alarm Message:**
+```json
+{
+  "type": "alarm",
+  "fermenter": 1,
+  "active": true
+}
+```
+
+**Connection Limits:**
+- Maximum concurrent clients: 4
+- Authentication timeout: 5 seconds
+- Idle timeout: 60 seconds (with 30s ping keep-alive)
+- Maximum frame size: 2048 bytes
+
+**Memory Usage:**
+- ~20KB per client (includes TLS buffers)
+- ~80KB total for 4 concurrent clients
+
+**Example (JavaScript):**
+```javascript
+const ws = new WebSocket('wss://192.168.0.142/ws');
+ws.onopen = () => {
+    ws.send(JSON.stringify({type: 'auth', token: sessionToken}));
+};
+ws.onmessage = (event) => {
+    const msg = JSON.parse(event.data);
+    if (msg.type === 'sensor') {
+        console.log(`Sensor ${msg.id}: ${msg.value}`);
+    }
+};
+```
+
 ### Bus Status
 
 #### GET /api/modbus/stats
@@ -768,7 +870,7 @@ The ESP32 has limited TLS session capacity. The Admin UI:
 ## Future Enhancements
 
 ### Phase 2
-- [ ] WebSocket support for push updates
+- [x] WebSocket support for push updates (implemented)
 - [ ] Historical data graphs (Chart.js integration)
 - [ ] Data export (CSV download)
 - [ ] Firmware update via web interface
