@@ -1793,13 +1793,13 @@
         async function refreshFirmwareInfo() {
             try {
                 const data = await api('/firmware/info');
-                document.getElementById('fw-version').textContent = data.version || '--';
-                document.getElementById('fw-partition').textContent = data.running_partition || '--';
-                document.getElementById('fw-size').textContent = data.firmware_size ?
-                    (data.firmware_size / 1024).toFixed(0) + ' KB' : '--';
+                document.getElementById('fw-version').textContent = data.running?.version || '--';
+                document.getElementById('fw-partition').textContent = data.running?.label || '--';
+                document.getElementById('fw-size').textContent = data.running?.size ?
+                    (data.running.size / 1024).toFixed(0) + ' KB' : '--';
 
                 const statusEl = document.getElementById('fw-status');
-                if (data.pending_verify) {
+                if (data.needs_confirmation) {
                     statusEl.innerHTML = '<span class="badge bg-warning">Pending Verification</span>';
                     document.getElementById('ota-confirm-section').style.display = 'block';
                 } else {
