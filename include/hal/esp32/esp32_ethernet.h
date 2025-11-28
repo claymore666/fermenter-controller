@@ -337,7 +337,7 @@ private:
                 break;
 
             case ETHERNET_EVENT_START:
-                ESP_LOGI(TAG, "Ethernet started");
+                // Logged in start() method already
                 break;
 
             case ETHERNET_EVENT_STOP:
@@ -368,9 +368,7 @@ private:
         self->connected_ = true;
         self->info_.connected = true;
 
-        ESP_LOGI(TAG, "Ethernet got IP: %s", self->info_.ip_address);
-        ESP_LOGI(TAG, "  Netmask: %s", self->info_.netmask);
-        ESP_LOGI(TAG, "  Gateway: %s", self->info_.gateway);
+        // IP details logged by callback handler (NetMgr)
 
         xEventGroupSetBits(self->eth_event_group_, ETH_CONNECTED_BIT);
         xEventGroupClearBits(self->eth_event_group_, ETH_FAIL_BIT);
