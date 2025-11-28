@@ -312,7 +312,7 @@ private:
 
         switch (event_id) {
             case ETHERNET_EVENT_CONNECTED: {
-                ESP_LOGI(TAG, "Ethernet link up");
+                // Link up logged by callback handler (NetMgr) when IP obtained
                 // Get link speed
                 esp_eth_handle_t eth_handle = *(esp_eth_handle_t*)event_data;
                 eth_speed_t speed;
@@ -324,7 +324,7 @@ private:
             }
 
             case ETHERNET_EVENT_DISCONNECTED:
-                ESP_LOGI(TAG, "Ethernet link down");
+                // Link down logged by callback handler (NetMgr)
                 self->connected_ = false;
                 self->info_.connected = false;
                 memset(self->info_.ip_address, 0, sizeof(self->info_.ip_address));
@@ -337,7 +337,7 @@ private:
                 break;
 
             case ETHERNET_EVENT_START:
-                ESP_LOGI(TAG, "Ethernet started");
+                // Logged in start() method already
                 break;
 
             case ETHERNET_EVENT_STOP:
@@ -368,9 +368,7 @@ private:
         self->connected_ = true;
         self->info_.connected = true;
 
-        ESP_LOGI(TAG, "Ethernet got IP: %s", self->info_.ip_address);
-        ESP_LOGI(TAG, "  Netmask: %s", self->info_.netmask);
-        ESP_LOGI(TAG, "  Gateway: %s", self->info_.gateway);
+        // IP details logged by callback handler (NetMgr)
 
         xEventGroupSetBits(self->eth_event_group_, ETH_CONNECTED_BIT);
         xEventGroupClearBits(self->eth_event_group_, ETH_FAIL_BIT);

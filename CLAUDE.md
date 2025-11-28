@@ -38,6 +38,7 @@ cd modbus_simulator && python simulator.py
 | [docs/NVS_STORAGE.md](docs/NVS_STORAGE.md) | NVS key-value storage reference |
 | [docs/DATA_MODEL.md](docs/DATA_MODEL.md) | Core data structures and JSON representation |
 | [docs/MDNS_HTTPS.md](docs/MDNS_HTTPS.md) | mDNS device discovery and HTTPS/TLS configuration |
+| [docs/OTA_UPDATES.md](docs/OTA_UPDATES.md) | OTA firmware updates, rollback, GitHub pull |
 
 ### Hardware Reference
 
@@ -98,19 +99,27 @@ cd modbus_simulator && python simulator.py
 - Ethernet connectivity (W5500 SPI on GPIO12-16, GPIO39)
 - Network failover (WiFi standby when Ethernet on same network)
 - WebSocket real-time push updates (event-driven sensor/relay/alarm notifications)
+- OTA firmware updates (upload, GitHub pull, rollback)
 
 ### Not Implemented
 - MQTT client
 
 ## Device Access
 
+| Interface | IP Address | Status |
+|-----------|------------|--------|
+| Ethernet (primary) | `192.168.0.142` | Active |
+| WiFi (standby) | `192.168.0.139` | Hot standby when Ethernet connected |
+
 | Access Method | URL |
 |---------------|-----|
 | mDNS (HTTPS) | `https://fermenter-XXXXXX.local/admin/` |
-| IP (HTTPS) | `https://192.168.0.139/admin/` |
-| IP (HTTP→redirect) | `http://192.168.0.139/` (redirects to HTTPS) |
+| Ethernet (HTTPS) | `https://192.168.0.142/admin/` |
+| WiFi (HTTPS) | `https://192.168.0.139/admin/` |
 
 Where `XXXXXX` is the last 3 bytes of the device MAC address (e.g., `fermenter-230778`).
+
+**Note**: When both Ethernet and WiFi are on the same network, WiFi enters "hot standby" mode - it keeps its IP but traffic routes through Ethernet. If Ethernet fails, WiFi takes over instantly.
 
 **First-boot password setup**: Device requires password creation on initial access (8+ chars, 2 of: uppercase/lowercase/digit). No default password.
 
@@ -177,6 +186,7 @@ Typical CPU usage when idle: ~0.2%
 | `HTTP_ENABLED` | HTTP server + REST API |
 | `WEBSOCKET_ENABLED` | WebSocket real-time push updates (requires HTTP_ENABLED) |
 | `CERT_GENERATION_ENABLED` | Per-device SSL certificate generation |
+| `OTA_ENABLED` | Over-the-air firmware updates |
 | `MQTT_ENABLED` | MQTT client (not implemented) |
 
 See [docs/BUILD_FLAGS.md](docs/BUILD_FLAGS.md) for details.
@@ -433,4 +443,19 @@ The boot verification script looks for these in serial output:
 | `Guru Meditation` | **CRASH** - boot failed |
 | `panic` | **CRASH** - boot failed |
 | `watchdog` | **TIMEOUT** - possible hang |
-- remember that we have a sdkconfig of our own not a default from platformio
+
+## ESP-IDF Configuration (sdkconfig)
+
+**IMPORTANT**: This project uses per-environment sdkconfig files that override `sdkconfig.defaults`.
+
+| File | Purpose |
+|------|---------|
+| `sdkconfig.defaults` | Base ESP-IDF settings, documentation reference |
+| `sdkconfig.esp32_wifi` | **Actual config used** for `esp32_wifi` build target |
+
+When PlatformIO builds with `-e esp32_wifi`, it uses `sdkconfig.esp32_wifi` if present, ignoring `sdkconfig.defaults`. Always modify the target-specific file for ESP-IDF Kconfig options.
+
+Key settings in `sdkconfig.esp32_wifi`:
+- `CONFIG_ESP_HTTPS_OTA_ALLOW_HTTP=y` - Allow HTTP OTA downloads
+- `CONFIG_MBEDTLS_SSL_IN_CONTENT_LEN=16384` - SSL input buffer size
+- `CONFIG_MBEDTLS_CERTIFICATE_BUNDLE=y` - Certificate bundle for HTTPS client

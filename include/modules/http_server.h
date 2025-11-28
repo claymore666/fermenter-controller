@@ -31,6 +31,10 @@
 #include "modules/websocket_manager.h"
 #endif
 
+#ifdef OTA_ENABLED
+#include "modules/ota_manager.h"
+#endif
+
 #ifdef ESP32_BUILD
 #include "esp_https_server.h"
 #include "esp_log.h"
@@ -115,6 +119,10 @@ public:
 #ifdef WEBSOCKET_ENABLED
         , ws_manager_(nullptr)
 #endif
+#ifdef OTA_ENABLED
+        , ota_manager_(nullptr)
+        , ota_system_callback_(nullptr)
+#endif
         , running_(false)
         , provisioned_(false) {
         memset(admin_password_hash_, 0, sizeof(admin_password_hash_));
@@ -139,6 +147,21 @@ public:
 
 #ifdef WEBSOCKET_ENABLED
     WebSocketManager* get_ws_manager() { return ws_manager_; }
+#endif
+
+#ifdef OTA_ENABLED
+    OtaManager* get_ota_manager() { return ota_manager_; }
+
+    /**
+     * Set callback for pausing/resuming system during OTA
+     * @param callback Function that takes bool (true=pause, false=resume)
+     */
+    void set_ota_system_callback(OtaSystemCallback callback) {
+        ota_system_callback_ = callback;
+        if (ota_manager_) {
+            ota_manager_->set_system_callback(callback);
+        }
+    }
 #endif
 
 #ifdef ESP32_BUILD
@@ -187,8 +210,8 @@ public:
             httpd_ssl_config_t config = HTTPD_SSL_CONFIG_DEFAULT();
             config.httpd.server_port = port;
             config.httpd.ctrl_port = port + 1;
-            config.httpd.max_uri_handlers = 40;
-            config.httpd.stack_size = 8192;
+            config.httpd.max_uri_handlers = 50;
+            config.httpd.stack_size = 12288;  // 12KB for OTA setup
             config.httpd.lru_purge_enable = true;
             config.httpd.uri_match_fn = httpd_uri_match_wildcard;  // Enable wildcard matching
 
@@ -210,8 +233,8 @@ public:
             httpd_config_t config = HTTPD_DEFAULT_CONFIG();
             config.server_port = port;
             config.ctrl_port = port + 1;
-            config.max_uri_handlers = 40;
-            config.stack_size = 8192;
+            config.max_uri_handlers = 50;
+            config.stack_size = 12288;  // 12KB for OTA setup
             config.lru_purge_enable = true;
             config.uri_match_fn = httpd_uri_match_wildcard;  // Enable wildcard matching
 
@@ -247,6 +270,16 @@ public:
         }
 #endif
 
+#ifdef OTA_ENABLED
+        // Initialize OTA manager
+        ota_manager_ = new OtaManager();
+        if (ota_manager_) {
+            // Set system pause callback for OTA
+            ota_manager_->set_system_callback(ota_system_callback_);
+            ESP_LOGI("HTTP", "OTA manager initialized");
+        }
+#endif
+
         running_ = true;
         ESP_LOGI("HTTP", "Server started successfully");
         return true;
@@ -263,6 +296,13 @@ public:
             ws_manager_->stop();
             delete ws_manager_;
             ws_manager_ = nullptr;
+        }
+#endif
+
+#ifdef OTA_ENABLED
+        if (ota_manager_) {
+            delete ota_manager_;
+            ota_manager_ = nullptr;
         }
 #endif
 
@@ -686,6 +726,10 @@ private:
 #ifdef WEBSOCKET_ENABLED
     WebSocketManager* ws_manager_;
 #endif
+#ifdef OTA_ENABLED
+    OtaManager* ota_manager_;
+    OtaSystemCallback ota_system_callback_;
+#endif
 
     char admin_password_hash_[security::PASSWORD_HASH_BUF_SIZE];
     Session session_;
@@ -868,8 +912,8 @@ private:
         httpd_ssl_config_t config = HTTPD_SSL_CONFIG_DEFAULT();
         config.httpd.server_port = 443;
         config.httpd.ctrl_port = 32769;  // Different from HTTP
-        config.httpd.max_uri_handlers = 40;
-        config.httpd.stack_size = 8192;
+        config.httpd.max_uri_handlers = 50;  // Increased for OTA endpoints
+        config.httpd.stack_size = 12288;  // 12KB for OTA setup
         config.httpd.lru_purge_enable = true;
         config.httpd.uri_match_fn = httpd_uri_match_wildcard;
 
@@ -991,8 +1035,8 @@ public:
         httpd_config_t config = HTTPD_DEFAULT_CONFIG();
         config.server_port = http_port;
         config.ctrl_port = http_port + 1;
-        config.max_uri_handlers = 40;
-        config.stack_size = 8192;
+        config.max_uri_handlers = 50;  // Increased for OTA endpoints
+        config.stack_size = 12288;  // 12KB for OTA setup
         config.lru_purge_enable = true;
         config.uri_match_fn = httpd_uri_match_wildcard;
 
@@ -1005,6 +1049,15 @@ public:
         // Register handlers on HTTP server (will serve content until HTTPS is ready)
         instance_ = this;
         register_handlers_on_server(http_redirect_server_);
+
+#ifdef OTA_ENABLED
+        // Initialize OTA manager
+        ota_manager_ = new OtaManager();
+        if (ota_manager_) {
+            ota_manager_->set_system_callback(ota_system_callback_);
+            ESP_LOGI("HTTP", "OTA manager initialized");
+        }
+#endif
 
         running_ = true;
         ESP_LOGI("HTTP", "HTTP server started on port %d", http_port);
@@ -1087,6 +1140,16 @@ public:
         httpd_uri_t api_dashboard = { .uri = "/api/dashboard", .method = HTTP_GET, .handler = api_handler, .user_ctx = this };
         httpd_uri_t api_reboot = { .uri = "/api/reboot", .method = HTTP_POST, .handler = api_handler, .user_ctx = this };
 
+#ifdef OTA_ENABLED
+        // OTA firmware update handlers
+        httpd_uri_t api_firmware_info = { .uri = "/api/firmware/info", .method = HTTP_GET, .handler = api_handler, .user_ctx = this };
+        httpd_uri_t api_firmware_status = { .uri = "/api/firmware/status", .method = HTTP_GET, .handler = api_handler, .user_ctx = this };
+        httpd_uri_t api_firmware_upload = { .uri = "/api/firmware/upload", .method = HTTP_POST, .handler = ota_upload_handler, .user_ctx = this };
+        httpd_uri_t api_firmware_download = { .uri = "/api/firmware/download", .method = HTTP_POST, .handler = api_handler, .user_ctx = this };
+        httpd_uri_t api_firmware_confirm = { .uri = "/api/firmware/confirm", .method = HTTP_POST, .handler = api_handler, .user_ctx = this };
+        httpd_uri_t api_firmware_rollback = { .uri = "/api/firmware/rollback", .method = HTTP_POST, .handler = api_handler, .user_ctx = this };
+#endif
+
         // Wildcard handlers
         httpd_uri_t api_relay_set = { .uri = "/api/relay/*", .method = HTTP_POST, .handler = api_handler, .user_ctx = this };
         httpd_uri_t api_output_set = { .uri = "/api/output/*", .method = HTTP_POST, .handler = api_handler, .user_ctx = this };
@@ -1123,6 +1186,14 @@ public:
         httpd_register_uri_handler(server, &api_wifi_summary);
         httpd_register_uri_handler(server, &api_dashboard);
         httpd_register_uri_handler(server, &api_reboot);
+#ifdef OTA_ENABLED
+        httpd_register_uri_handler(server, &api_firmware_info);
+        httpd_register_uri_handler(server, &api_firmware_status);
+        httpd_register_uri_handler(server, &api_firmware_upload);
+        httpd_register_uri_handler(server, &api_firmware_download);
+        httpd_register_uri_handler(server, &api_firmware_confirm);
+        httpd_register_uri_handler(server, &api_firmware_rollback);
+#endif
         httpd_register_uri_handler(server, &api_relay_set);
         httpd_register_uri_handler(server, &api_output_set);
         httpd_register_uri_handler(server, &api_fermenter_get);
@@ -1810,6 +1881,14 @@ public:
             return api_can_status(response, response_size);
         }
 #endif
+#ifdef OTA_ENABLED
+        else if (strcmp(path, "/api/firmware/info") == 0) {
+            return api_firmware_info(response, response_size);
+        }
+        else if (strcmp(path, "/api/firmware/status") == 0) {
+            return api_firmware_status(response, response_size);
+        }
+#endif
         else if (strcmp(path, "/api/cpu/history") == 0) {
             return api_cpu_history(response, response_size);
         }
@@ -1839,6 +1918,16 @@ public:
         } else if (strcmp(path, "/api/reboot") == 0) {
             return api_reboot(response, response_size);
         }
+#ifdef OTA_ENABLED
+        // OTA firmware POST endpoints
+        else if (strcmp(path, "/api/firmware/download") == 0) {
+            return api_firmware_download(body, response, response_size);
+        } else if (strcmp(path, "/api/firmware/confirm") == 0) {
+            return api_firmware_confirm(response, response_size);
+        } else if (strcmp(path, "/api/firmware/rollback") == 0) {
+            return api_firmware_rollback(response, response_size);
+        }
+#endif
 
         snprintf(response, response_size, "{\"error\":\"Not found\"}");
         return 404;
@@ -2657,6 +2746,246 @@ public:
 
         return 200;
     }
+
+#ifdef OTA_ENABLED
+    // ==================== OTA API Methods ====================
+
+    /**
+     * GET /api/firmware/info - Get partition and version info
+     */
+    int api_firmware_info(char* response, size_t response_size) {
+        if (!ota_manager_) {
+            snprintf(response, response_size, "{\"error\":\"OTA not available\"}");
+            return 500;
+        }
+
+        PartitionInfo running, other;
+        ota_manager_->get_partition_info(running, other);
+        bool needs_confirm = ota_manager_->needs_confirmation();
+
+        snprintf(response, response_size,
+            "{\"running\":{\"label\":\"%s\",\"version\":\"%s\",\"size\":%lu},"
+            "\"other\":{\"label\":\"%s\",\"version\":\"%s\",\"size\":%lu,\"valid\":%s},"
+            "\"needs_confirmation\":%s}",
+            running.label, running.app_version, (unsigned long)running.size,
+            other.label, other.app_version, (unsigned long)other.size,
+            other.is_valid ? "true" : "false",
+            needs_confirm ? "true" : "false");
+
+        return 200;
+    }
+
+    /**
+     * GET /api/firmware/status - Get OTA update progress
+     */
+    int api_firmware_status(char* response, size_t response_size) {
+        if (!ota_manager_) {
+            snprintf(response, response_size, "{\"error\":\"OTA not available\"}");
+            return 500;
+        }
+
+        OtaProgress progress = ota_manager_->get_progress();
+        const char* state_str = "idle";
+        switch (progress.state) {
+            case OtaState::IDLE: state_str = "idle"; break;
+            case OtaState::PREPARING: state_str = "preparing"; break;
+            case OtaState::DOWNLOADING: state_str = "downloading"; break;
+            case OtaState::RECEIVING: state_str = "receiving"; break;
+            case OtaState::VERIFYING: state_str = "verifying"; break;
+            case OtaState::COMPLETE: state_str = "complete"; break;
+            case OtaState::FAILED: state_str = "failed"; break;
+        }
+
+        snprintf(response, response_size,
+            "{\"state\":\"%s\",\"progress\":%d,"
+            "\"bytes_received\":%lu,\"bytes_total\":%lu,"
+            "\"message\":\"%s\"}",
+            state_str, progress.percent,
+            (unsigned long)progress.bytes_received,
+            (unsigned long)progress.bytes_total,
+            progress.status_message);
+
+        return 200;
+    }
+
+    /**
+     * POST /api/firmware/download - Download firmware from URL
+     * Body: {"url": "https://..."} or empty for default GitHub OTA branch
+     */
+    int api_firmware_download(const char* body, char* response, size_t response_size) {
+        if (!ota_manager_) {
+            snprintf(response, response_size, "{\"error\":\"OTA not available\"}");
+            return 500;
+        }
+
+        // Parse URL from body (optional)
+        const char* url = nullptr;
+        char url_buf[256] = {0};
+        if (body && body[0] != '\0') {
+            // Simple JSON parse for "url" field
+            const char* url_start = strstr(body, "\"url\"");
+            if (url_start) {
+                url_start = strchr(url_start + 5, '"');
+                if (url_start) {
+                    url_start++;
+                    const char* url_end = strchr(url_start, '"');
+                    if (url_end && (url_end - url_start) < (int)sizeof(url_buf)) {
+                        strncpy(url_buf, url_start, url_end - url_start);
+                        url = url_buf;
+                    }
+                }
+            }
+        }
+
+        OtaResult result = ota_manager_->download_from_url(url);
+
+        snprintf(response, response_size,
+            "{\"success\":%s,\"message\":\"%s\"}",
+            result.success ? "true" : "false",
+            result.message);
+
+        return result.success ? 200 : 500;
+    }
+
+    /**
+     * POST /api/firmware/confirm - Confirm firmware update (prevent rollback)
+     */
+    int api_firmware_confirm(char* response, size_t response_size) {
+        if (!ota_manager_) {
+            snprintf(response, response_size, "{\"error\":\"OTA not available\"}");
+            return 500;
+        }
+
+        OtaResult result = ota_manager_->confirm_update();
+
+        snprintf(response, response_size,
+            "{\"success\":%s,\"message\":\"%s\"}",
+            result.success ? "true" : "false",
+            result.message);
+
+        return result.success ? 200 : 500;
+    }
+
+    /**
+     * POST /api/firmware/rollback - Rollback to previous firmware
+     */
+    int api_firmware_rollback(char* response, size_t response_size) {
+        if (!ota_manager_) {
+            snprintf(response, response_size, "{\"error\":\"OTA not available\"}");
+            return 500;
+        }
+
+        OtaResult result = ota_manager_->rollback();
+
+        // Note: If rollback succeeds, device reboots and this response won't be sent
+        snprintf(response, response_size,
+            "{\"success\":%s,\"message\":\"%s\"}",
+            result.success ? "true" : "false",
+            result.message);
+
+        return result.success ? 200 : 500;
+    }
+
+    /**
+     * Special handler for firmware upload (streaming)
+     * POST /api/firmware/upload
+     */
+    static esp_err_t ota_upload_handler(httpd_req_t* req) {
+#ifdef ESP32_BUILD
+        HttpServer* self = static_cast<HttpServer*>(req->user_ctx);
+        if (!self || !self->ota_manager_) {
+            httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "OTA not available");
+            return ESP_FAIL;
+        }
+
+        // Check authentication - extract token from Authorization header
+        char auth_header[128] = {0};
+        httpd_req_get_hdr_value_str(req, "Authorization", auth_header, sizeof(auth_header));
+        const char* token = nullptr;
+        if (strncmp(auth_header, "Bearer ", 7) == 0) {
+            token = auth_header + 7;
+        }
+        if (!self->is_authenticated(token)) {
+            httpd_resp_send_err(req, HTTPD_401_UNAUTHORIZED, "Unauthorized");
+            return ESP_FAIL;
+        }
+
+        size_t content_len = req->content_len;
+        ESP_LOGI("OTA", "Firmware upload started, size: %d bytes", content_len);
+
+        // Begin OTA
+        OtaResult result = self->ota_manager_->begin(content_len);
+        if (!result.success) {
+            httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, result.message);
+            return ESP_FAIL;
+        }
+
+        // Receive and write in chunks
+        char* buf = (char*)malloc(OtaManager::WRITE_BUFFER_SIZE);
+        if (!buf) {
+            self->ota_manager_->abort();
+            httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "Memory allocation failed");
+            return ESP_FAIL;
+        }
+
+        size_t remaining = content_len;
+        esp_err_t err = ESP_OK;
+
+        while (remaining > 0) {
+            size_t to_read = remaining > OtaManager::WRITE_BUFFER_SIZE ?
+                             OtaManager::WRITE_BUFFER_SIZE : remaining;
+
+            int received = httpd_req_recv(req, buf, to_read);
+            if (received <= 0) {
+                if (received == HTTPD_SOCK_ERR_TIMEOUT) {
+                    continue;  // Retry on timeout
+                }
+                ESP_LOGE("OTA", "Receive error: %d", received);
+                err = ESP_FAIL;
+                break;
+            }
+
+            result = self->ota_manager_->write(buf, received);
+            if (!result.success) {
+                ESP_LOGE("OTA", "Write error: %s", result.message);
+                err = ESP_FAIL;
+                break;
+            }
+
+            remaining -= received;
+        }
+
+        free(buf);
+
+        if (err != ESP_OK) {
+            self->ota_manager_->abort();
+            httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "Upload failed");
+            return ESP_FAIL;
+        }
+
+        // Finalize OTA
+        result = self->ota_manager_->end();
+        if (!result.success) {
+            httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, result.message);
+            return ESP_FAIL;
+        }
+
+        // Send success response
+        char response[256];
+        snprintf(response, sizeof(response),
+            "{\"success\":true,\"message\":\"%s\"}", result.message);
+
+        httpd_resp_set_type(req, "application/json");
+        httpd_resp_send(req, response, strlen(response));
+
+        ESP_LOGI("OTA", "Firmware upload complete");
+        return ESP_OK;
+#else
+        (void)req;
+        return ESP_FAIL;
+#endif
+    }
+#endif // OTA_ENABLED
 };
 
 #ifdef ESP32_BUILD

@@ -9,6 +9,9 @@
 #include "modules/fermentation_plan.h"
 #include "modules/wifi_provisioning.h"
 #include "modules/status_led.h"
+#ifdef OTA_ENABLED
+#include "modules/ota_manager.h"
+#endif
 #ifdef CAN_ENABLED
 #include "modules/can_module.h"
 #endif
@@ -76,6 +79,7 @@ public:
         , status_led_(status_led)
         , ethernet_(ethernet)
         , http_server_(nullptr)
+        , ota_manager_(nullptr)
         , cmd_index_(0)
         , echo_enabled_(true)
         , log_events_(false)
@@ -99,6 +103,13 @@ public:
      */
     void set_http_server(void* http_server) {
         http_server_ = http_server;
+    }
+
+    /**
+     * Set OTA manager reference for firmware commands
+     */
+    void set_ota_manager(void* ota_manager) {
+        ota_manager_ = ota_manager;
     }
 
     /**
@@ -165,6 +176,7 @@ private:
     StatusLed* status_led_;
     void* ethernet_;    // ESP32Ethernet* when ETHERNET_ENABLED
     void* http_server_; // HttpServer* when HTTP_ENABLED
+    void* ota_manager_; // OtaManager* when OTA_ENABLED
 
     char cmd_buffer_[MAX_CMD_LENGTH];
     size_t cmd_index_;
@@ -307,6 +319,8 @@ private:
             cmd_ssl(argc, args);
         } else if (strcmp(args[0], "ws") == 0) {
             cmd_ws(argc, args);
+        } else if (strcmp(args[0], "firmware") == 0) {
+            cmd_firmware(argc, args);
         } else {
             printf("Unknown command: %s\r\n", args[0]);
             serial_->println("Type 'help' for available commands");
@@ -368,6 +382,12 @@ private:
         serial_->println("  ws                  - WebSocket status");
         serial_->println("  ws clients          - List connected clients");
         serial_->println("  ws broadcast <msg>  - Send message to all clients");
+        serial_->println("");
+        serial_->println("  firmware            - Current version and partition info");
+        serial_->println("  firmware status     - OTA update status (during update)");
+        serial_->println("  firmware download [url] - Download from URL (or default)");
+        serial_->println("  firmware confirm    - Confirm update (prevent rollback)");
+        serial_->println("  firmware rollback   - Revert to previous firmware");
         serial_->println("");
         serial_->println("  cpu                 - CPU usage percentage");
         serial_->println("  inputs              - Show digital inputs DI1-8");
@@ -1666,14 +1686,18 @@ private:
                     esp_log_level_set("esp_tls_mbedtls", ESP_LOG_INFO);
                     esp_log_level_set("esp-tls-mbedtls", ESP_LOG_INFO);
                     esp_log_level_set("mbedtls", ESP_LOG_INFO);
-                    serial_->println("TLS debug output: enabled");
+                    esp_log_level_set("esp_https_server", ESP_LOG_INFO);
+                    esp_log_level_set("httpd", ESP_LOG_INFO);
+                    serial_->println("TLS/HTTPS debug output: enabled");
                 } else if (strcmp(args[2], "off") == 0) {
                     tls_debug_enabled_ = false;
-                    esp_log_level_set("esp-tls", ESP_LOG_WARN);
-                    esp_log_level_set("esp_tls_mbedtls", ESP_LOG_WARN);
-                    esp_log_level_set("esp-tls-mbedtls", ESP_LOG_WARN);
-                    esp_log_level_set("mbedtls", ESP_LOG_WARN);
-                    serial_->println("TLS debug output: disabled");
+                    esp_log_level_set("esp-tls", ESP_LOG_NONE);
+                    esp_log_level_set("esp_tls_mbedtls", ESP_LOG_NONE);
+                    esp_log_level_set("esp-tls-mbedtls", ESP_LOG_NONE);
+                    esp_log_level_set("mbedtls", ESP_LOG_NONE);
+                    esp_log_level_set("esp_https_server", ESP_LOG_NONE);
+                    esp_log_level_set("httpd", ESP_LOG_NONE);
+                    serial_->println("TLS/HTTPS debug output: disabled (all messages hidden)");
                 } else {
                     serial_->println("Usage: ssl debug [on|off]");
                 }
@@ -1748,6 +1772,107 @@ private:
         }
 #else
         serial_->println("WebSocket not available (requires ESP32 + WEBSOCKET_ENABLED)");
+#endif
+    }
+
+    void cmd_firmware(int argc, char** args) {
+#ifdef OTA_ENABLED
+        if (!ota_manager_) {
+            serial_->println("OTA manager not available");
+            return;
+        }
+
+        auto* ota = static_cast<OtaManager*>(ota_manager_);
+
+        if (argc < 2) {
+            // Default: show current firmware info and partition status
+            PartitionInfo running, other;
+            ota->get_partition_info(running, other);
+
+            serial_->println("Firmware Information:");
+            printf("  Version: %s\r\n", VERSION_STRING);
+            printf("  Build: %s %s\r\n", __DATE__, __TIME__);
+            serial_->println("");
+
+            serial_->println("Partition Status:");
+            printf("  Running: %s @ 0x%06X (%s)\r\n",
+                   running.label, running.address, running.app_version);
+            printf("  Other:   %s @ 0x%06X (%s)%s\r\n",
+                   other.label, other.address, other.app_version,
+                   other.is_valid ? "" : " [empty]");
+
+            if (ota->needs_confirmation()) {
+                serial_->println("");
+                serial_->println("  *** PENDING VERIFICATION ***");
+                serial_->println("  Run 'firmware confirm' to mark as valid");
+            }
+            return;
+        }
+
+        if (strcmp(args[1], "status") == 0) {
+            // Show OTA progress/status
+            OtaProgress progress = ota->get_progress();
+
+            const char* state_str = "Unknown";
+            switch (progress.state) {
+                case OtaState::IDLE: state_str = "Idle"; break;
+                case OtaState::PREPARING: state_str = "Preparing"; break;
+                case OtaState::DOWNLOADING: state_str = "Downloading"; break;
+                case OtaState::RECEIVING: state_str = "Receiving"; break;
+                case OtaState::VERIFYING: state_str = "Verifying"; break;
+                case OtaState::COMPLETE: state_str = "Complete"; break;
+                case OtaState::FAILED: state_str = "Failed"; break;
+            }
+
+            serial_->println("OTA Status:");
+            printf("  State: %s\r\n", state_str);
+            if (progress.bytes_total > 0) {
+                printf("  Progress: %u / %u bytes (%u%%)\r\n",
+                       progress.bytes_received, progress.bytes_total, progress.percent);
+            }
+            printf("  Message: %s\r\n", progress.status_message);
+
+        } else if (strcmp(args[1], "download") == 0) {
+            // Download from URL
+            const char* url = (argc >= 3) ? args[2] : nullptr;
+
+            if (url) {
+                printf("Starting download from: %s\r\n", url);
+            } else {
+                serial_->println("Starting download from default GitHub OTA branch...");
+            }
+
+            OtaResult result = ota->download_from_url(url);
+            printf("%s\r\n", result.message);
+
+            if (result.success) {
+                serial_->println("Use 'firmware status' to monitor progress");
+            }
+
+        } else if (strcmp(args[1], "confirm") == 0) {
+            // Confirm current firmware
+            OtaResult result = ota->confirm_update();
+            printf("%s\r\n", result.message);
+
+        } else if (strcmp(args[1], "rollback") == 0) {
+            // Rollback to previous firmware
+            serial_->println("Rolling back to previous firmware...");
+            OtaResult result = ota->rollback();
+            printf("%s\r\n", result.message);
+            // Note: if successful, device will reboot
+
+        } else {
+            serial_->println("Firmware Commands:");
+            serial_->println("  firmware            - Show version and partition info");
+            serial_->println("  firmware status     - OTA update status");
+            serial_->println("  firmware download [url] - Download from URL");
+            serial_->println("  firmware confirm    - Confirm update (prevent rollback)");
+            serial_->println("  firmware rollback   - Revert to previous firmware");
+        }
+#else
+        (void)argc;
+        (void)args;
+        serial_->println("OTA not available (requires OTA_ENABLED)");
 #endif
     }
 

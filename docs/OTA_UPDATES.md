@@ -1,0 +1,276 @@
+# OTA Firmware Updates
+
+Over-The-Air (OTA) firmware update support for the fermentation controller.
+
+## Overview
+
+The ESP32-S3 uses a dual OTA partition layout (app0/app1, 4MB each) allowing safe firmware updates with automatic rollback capability. During OTA, the new firmware is written to the inactive partition while the active partition continues running.
+
+## Features
+
+- **Upload-based OTA**: Upload firmware binary via web interface or REST API
+- **URL-based OTA**: Download firmware from HTTP or HTTPS URLs (local server or GitHub)
+- **Automatic rollback**: If new firmware fails to boot, automatically reverts to previous
+- **System pause**: MODBUS polling, PID control, and sensor updates pause during OTA
+- **Progress tracking**: Real-time upload progress in web interface
+
+## Web Interface
+
+Navigate to **Settings** in the admin interface to access the Firmware Update section.
+
+### Current Firmware Info
+
+Displays:
+- Version
+- Running partition (app0 or app1)
+- Firmware size
+- Status (Verified or Pending Verification)
+
+### Upload Firmware
+
+1. Click **Choose File** and select a `.bin` firmware file
+2. Click **Upload & Install**
+3. Wait for upload to complete (progress shown)
+4. Device will automatically reboot
+
+### Download from GitHub
+
+1. Leave URL empty for default OTA branch, or enter custom URL
+2. Click **Download & Install**
+3. Device will download, verify, and install the firmware
+4. Device will automatically reboot
+
+### Confirm / Rollback
+
+After installing new firmware, it remains in "Pending Verification" state:
+
+- **Confirm**: Mark firmware as valid (prevents rollback)
+- **Rollback**: Revert to previous firmware and reboot
+
+If the device fails to boot 3 times, it automatically rolls back to the previous firmware.
+
+## REST API
+
+### GET /api/firmware/info
+
+Returns current firmware and partition information.
+
+```json
+{
+  "version": "0.3.0",
+  "running_partition": "app0",
+  "next_partition": "app1",
+  "firmware_size": 1478445,
+  "pending_verify": false
+}
+```
+
+### GET /api/firmware/status
+
+Returns OTA operation status (during upload/download).
+
+```json
+{
+  "state": "writing",
+  "bytes_written": 524288,
+  "total_bytes": 1478445,
+  "progress_percent": 35
+}
+```
+
+### POST /api/firmware/upload
+
+Upload firmware binary directly. Send raw binary data with `Authorization: Bearer <token>` header.
+
+```bash
+curl -X POST https://fermenter.local/api/firmware/upload \
+  -H "Authorization: Bearer <token>" \
+  --data-binary @firmware.bin
+```
+
+Response:
+```json
+{
+  "success": true,
+  "message": "OTA complete, rebooting..."
+}
+```
+
+### POST /api/firmware/download
+
+Download and install firmware from URL.
+
+```json
+{
+  "url": "https://example.com/firmware.bin"
+}
+```
+
+Omit `url` to use default GitHub OTA branch URL.
+
+Response:
+```json
+{
+  "success": true,
+  "message": "OTA complete, rebooting..."
+}
+```
+
+### POST /api/firmware/confirm
+
+Confirm current firmware as valid (prevents automatic rollback).
+
+```json
+{
+  "success": true,
+  "message": "Firmware confirmed"
+}
+```
+
+### POST /api/firmware/rollback
+
+Roll back to previous firmware and reboot.
+
+```json
+{
+  "success": true,
+  "message": "Rolling back, rebooting..."
+}
+```
+
+## GitHub OTA Branch Setup
+
+The default download URL points to:
+```
+https://raw.githubusercontent.com/claymore666/fermenter-controller/OTA/firmware.bin
+```
+
+To set up automated OTA releases:
+
+1. Create an `OTA` branch in your repository
+2. Build firmware: `pio run -e esp32_wifi`
+3. Copy `.pio/build/esp32_wifi/firmware.bin` to the OTA branch
+4. Commit and push to the OTA branch
+
+Devices can then pull updates by clicking **Download & Install** with the default URL.
+
+## System Behavior During OTA
+
+When OTA starts:
+
+1. **System pause callback** triggers
+2. **MODBUS polling** stops
+3. **PID control** stops
+4. **Sensor updates** stop
+5. **WebSocket clients** timeout (will reconnect after reboot)
+
+This ensures:
+- No interference with flash writes
+- Reduced memory pressure
+- Clean shutdown of bus operations
+
+## Partition Layout
+
+```
+Flash (16MB):
+├── bootloader
+├── partition table
+├── nvs (32KB) - credentials, config
+├── phy_init
+├── app0 (4MB) - OTA partition 0
+├── app1 (4MB) - OTA partition 1
+└── spiffs (8MB) - web assets, plans
+```
+
+## Error Handling
+
+| Error | Cause | Solution |
+|-------|-------|----------|
+| `No OTA partition` | Wrong partition table | Check partitions.csv |
+| `Not enough space` | Firmware too large | Reduce firmware size |
+| `Invalid image` | Corrupt firmware | Re-download and retry |
+| `Write failed` | Flash error | Check flash health |
+| `Download failed` | Network error | Check URL and connectivity |
+
+## Known Limitations
+
+### Direct Upload via curl/HTTPS
+
+Direct firmware upload via `POST /api/firmware/upload` may fail with large firmware files (~1.5MB) due to SSL buffer constraints. The ESP32's TLS buffers are reduced to 4KB to allow multiple concurrent connections, which can cause `MBEDTLS_ERR_SSL_READ` errors during large POST body transfers.
+
+**Workaround**: Use the **Download from URL** method (`POST /api/firmware/download`) which uses ESP-IDF's esp_https_ota with its own SSL session and handles streaming properly.
+
+### Web Interface Upload
+
+The web interface upload may be affected by the same SSL buffer limitation. If upload fails:
+1. Try the "Download from URL" option instead
+2. Host the firmware.bin on a web server accessible by the device
+3. Enter the URL and click "Download & Install"
+
+## Build Flag
+
+OTA is enabled via build flag in `platformio.ini`:
+
+```ini
+-DOTA_ENABLED
+```
+
+This flag is included in the `esp32_wifi` and `esp32_full` environments.
+
+## HTTP vs HTTPS Downloads
+
+The OTA manager supports both HTTP and HTTPS URLs:
+
+| Protocol | Use Case | Notes |
+|----------|----------|-------|
+| HTTP | Local network servers | Recommended for local OTA |
+| HTTPS | GitHub, external servers | May have SSL buffer issues |
+
+**Why HTTP is recommended for firmware downloads:**
+- Firmware integrity is verified by ESP32's image verification (signature check)
+- No SSL handshake overhead - faster downloads
+- Avoids SSL buffer memory issues on constrained devices
+- Encryption provides no security benefit (firmware is public binary)
+
+**Example: Local HTTP OTA server**
+```bash
+# On your development machine
+cd .pio/build/esp32_wifi
+python3 -m http.server 8080
+
+# Then trigger OTA with URL
+curl -X POST https://fermenter.local/api/firmware/download \
+  -H "Authorization: Bearer <token>" \
+  -H "Content-Type: application/json" \
+  -d '{"url": "http://192.168.0.100:8080/firmware.bin"}'
+```
+
+## ESP-IDF Configuration
+
+OTA configuration is in `sdkconfig.esp32_wifi` (not `sdkconfig.defaults`):
+
+```
+# Allow plain HTTP for OTA updates
+CONFIG_ESP_HTTPS_OTA_ALLOW_HTTP=y
+CONFIG_OTA_ALLOW_HTTP=y
+
+# SSL buffer sizes (for HTTPS if needed)
+CONFIG_MBEDTLS_SSL_IN_CONTENT_LEN=16384
+CONFIG_MBEDTLS_SSL_OUT_CONTENT_LEN=4096
+```
+
+**Important**: PlatformIO uses `sdkconfig.esp32_wifi` for the `esp32_wifi` build target, overriding `sdkconfig.defaults`. Always modify the target-specific file.
+
+## Testing Status
+
+| Feature | Status |
+|---------|--------|
+| REST API endpoints | ✓ Working |
+| Partition info (`/api/firmware/info`) | ✓ Working |
+| Progress tracking (`/api/firmware/status`) | ✓ Working |
+| Direct upload via curl | ⚠ SSL buffer issues |
+| Download from HTTP URL | ✓ Working |
+| Download from HTTPS URL | ⚠ SSL buffer issues |
+| Web interface upload | Implemented (SSL limited) |
+| Rollback | Implemented |
+| Confirm | Implemented |

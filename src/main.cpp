@@ -141,6 +141,11 @@ static hal::esp32::ESP32Ethernet* g_ethernet = nullptr;
 static HttpServer* g_http_server = nullptr;
 #endif
 
+#ifdef OTA_ENABLED
+// Flag to pause control loop during OTA
+static volatile bool g_ota_active = false;
+#endif
+
 /**
  * Cleanup allocated modules on init failure or shutdown
  * Prevents memory leaks if initialization fails partway through
@@ -172,6 +177,36 @@ void cleanup_modules() {
     if (g_plan_manager) { delete g_plan_manager; g_plan_manager = nullptr; }
     if (g_modbus_module) { delete g_modbus_module; g_modbus_module = nullptr; }
 }
+
+// ============================================================================
+// OTA System Pause Callback
+// ============================================================================
+#ifdef OTA_ENABLED
+/**
+ * Callback to pause/resume system during OTA updates
+ * When OTA starts: pause MODBUS polling, PID control, sensor updates
+ * When OTA ends: resume normal operation (or reboot after successful OTA)
+ */
+static void on_ota_system_pause(bool pause) {
+    g_ota_active = pause;
+#ifdef ESP32_BUILD
+    if (pause) {
+        ESP_LOGI("OTA", "Pausing system for OTA update");
+        // WebSocket clients will timeout during OTA and reconnect after reboot
+        // Set status LED to blink blue during OTA
+        if (g_status_led) {
+            g_status_led->set_ota_downloading(true);
+        }
+    } else {
+        ESP_LOGI("OTA", "Resuming system after OTA");
+        // Restore normal LED state
+        if (g_status_led) {
+            g_status_led->set_ota_downloading(false);
+        }
+    }
+#endif
+}
+#endif // OTA_ENABLED
 
 // ============================================================================
 // Network Failover Manager
@@ -376,34 +411,8 @@ bool system_init(bool config_loaded = false) {
         g_status_led->set_provisioning(false);
         g_status_led->set_wifi_connected(true);
 
-        // Initialize mDNS for device discovery
-        g_mdns = new modules::MdnsService();
-        if (g_mdns && g_mdns->init()) {
-            printf("mDNS: %s.local\n", g_mdns->get_hostname());
-        } else {
-            printf("WARNING: mDNS init failed\n");
-        }
-
-        // Initialize NTP
-        g_ntp = new NtpModule(&g_time);
-        if (!g_ntp) {
-            printf("WARNING: Failed to allocate NtpModule, continuing without NTP\n");
-        } else {
-            modules::NtpModule::Config ntp_config;
-            ntp_config.server = "pool.ntp.org";
-            ntp_config.timezone = "CET-1CEST,M3.5.0,M10.5.0/3";  // Central Europe
-            g_ntp->configure(ntp_config);
-
-            if (g_ntp->init() && g_ntp->wait_for_sync(10000)) {
-                printf("NTP synced\n");
-                g_status_led->set_ntp_synced(true);
-                g_status_led->set_color(StatusLed::Color::GREEN);  // Boot complete, all OK
-            } else {
-                printf("NTP sync failed\n");
-                g_status_led->set_ntp_synced(false);
-                g_status_led->set_color(StatusLed::Color::YELLOW);  // Boot complete but NTP failed
-            }
-        }
+        // Note: NTP and mDNS initialization moved to after Ethernet setup
+        // This ensures they use the primary interface (Ethernet if available)
     } else {
         printf("WiFi not connected, in provisioning mode\n");
         g_status_led->set_provisioning(true);
@@ -444,6 +453,45 @@ bool system_init(bool config_loaded = false) {
 #endif
 #endif
 
+#ifdef WIFI_NTP_ENABLED
+    // Initialize mDNS AFTER network setup is complete
+    // This ensures mDNS advertises on the correct interface (Ethernet if available)
+    g_mdns = new modules::MdnsService();
+    if (g_mdns && g_mdns->init()) {
+        printf("mDNS: %s.local\n", g_mdns->get_hostname());
+    } else {
+        printf("WARNING: mDNS init failed\n");
+    }
+
+    // Initialize NTP AFTER network setup is complete
+    // This ensures NTP uses the primary interface (Ethernet if available)
+    bool wifi_connected = g_wifi_prov && g_wifi_prov->is_connected();
+#ifdef ETHERNET_ENABLED
+    bool eth_connected = g_ethernet && g_ethernet->is_connected();
+#else
+    bool eth_connected = false;
+#endif
+    if (wifi_connected || eth_connected) {
+        g_ntp = new NtpModule(&g_time);
+        if (!g_ntp) {
+            printf("WARNING: Failed to allocate NtpModule, continuing without NTP\n");
+        } else {
+            modules::NtpModule::Config ntp_config;
+            ntp_config.server = "pool.ntp.org";
+            ntp_config.timezone = "CET-1CEST,M3.5.0,M10.5.0/3";  // Central Europe
+            g_ntp->configure(ntp_config);
+
+            if (g_ntp->init() && g_ntp->wait_for_sync(10000)) {
+                printf("NTP synced\n");
+                g_status_led->set_ntp_synced(true);
+            } else {
+                printf("NTP sync failed\n");
+                g_status_led->set_ntp_synced(false);
+            }
+        }
+    }
+#endif
+
 #ifdef HTTP_ENABLED
     // Initialize HTTP server (requires network - WiFi or Ethernet)
     bool network_available = false;
@@ -482,6 +530,10 @@ bool system_init(bool config_loaded = false) {
             // HTTPS will be enabled once TLS issues are resolved
             if (g_http_server->start_with_background_https(80)) {
                 printf("HTTP server started on port 80 (cert gen in background)\n");
+#ifdef OTA_ENABLED
+                // Wire up OTA system pause callback
+                g_http_server->set_ota_system_callback(on_ota_system_pause);
+#endif
             } else {
                 printf("WARNING: HTTP server failed to start\n");
             }
@@ -532,8 +584,22 @@ bool system_init(bool config_loaded = false) {
 #endif
     );
     g_debug_console->initialize(115200);
+
+    // Suppress TLS/HTTPS handshake error messages by default
+    // These are often spurious (client disconnects, timeouts, etc)
+    // Use 'ssl debug on' to re-enable for debugging
+    esp_log_level_set("esp-tls", ESP_LOG_NONE);
+    esp_log_level_set("esp_tls_mbedtls", ESP_LOG_NONE);
+    esp_log_level_set("esp-tls-mbedtls", ESP_LOG_NONE);
+    esp_log_level_set("mbedtls", ESP_LOG_NONE);
+    esp_log_level_set("esp_https_server", ESP_LOG_NONE);
+    esp_log_level_set("httpd", ESP_LOG_NONE);
+
 #ifdef HTTP_ENABLED
     g_debug_console->set_http_server(g_http_server);
+#ifdef OTA_ENABLED
+    g_debug_console->set_ota_manager(g_http_server->get_ota_manager());
+#endif
 #endif
 #endif
 
@@ -546,6 +612,18 @@ bool system_init(bool config_loaded = false) {
 void control_loop() {
 #ifdef ESP32_BUILD
     uint64_t loop_start_us = esp_timer_get_time();
+#endif
+
+#ifdef OTA_ENABLED
+    // Skip control operations during OTA update
+    if (g_ota_active) {
+        // Only update minimal state during OTA
+        g_state.update_system_uptime(g_time.millis() / 1000);
+#ifdef ESP32_BUILD
+        g_state.update_free_heap(esp_get_free_heap_size());
+#endif
+        return;
+    }
 #endif
 
     // 1. Poll MODBUS sensors
