@@ -569,7 +569,7 @@ private:
 
         if (bits & WIFI_CONNECTED_BIT) {
             state_ = State::CONNECTED;
-            ESP_LOGI("Prov", "Connected to %s", ssid);
+            // Connection logged by main.cpp
             return true;
         }
 
@@ -991,7 +991,7 @@ private:
                      IPSTR, IP2STR(&event->ip_info.gw));
             self->state_ = State::CONNECTED;
             xEventGroupSetBits(self->wifi_event_group_, WIFI_CONNECTED_BIT);
-            ESP_LOGI("Prov", "Got IP: %s", self->ip_address_);
+            // IP logged by main.cpp after connect()
 
             // Notify callback (for network failover evaluation)
             if (self->ip_callback_) {

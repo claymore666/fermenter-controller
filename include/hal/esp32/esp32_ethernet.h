@@ -312,7 +312,7 @@ private:
 
         switch (event_id) {
             case ETHERNET_EVENT_CONNECTED: {
-                ESP_LOGI(TAG, "Ethernet link up");
+                // Link up logged by callback handler (NetMgr) when IP obtained
                 // Get link speed
                 esp_eth_handle_t eth_handle = *(esp_eth_handle_t*)event_data;
                 eth_speed_t speed;
@@ -324,7 +324,7 @@ private:
             }
 
             case ETHERNET_EVENT_DISCONNECTED:
-                ESP_LOGI(TAG, "Ethernet link down");
+                // Link down logged by callback handler (NetMgr)
                 self->connected_ = false;
                 self->info_.connected = false;
                 memset(self->info_.ip_address, 0, sizeof(self->info_.ip_address));
