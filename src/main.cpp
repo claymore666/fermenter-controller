@@ -565,6 +565,9 @@ bool system_init(bool config_loaded = false) {
     g_debug_console->initialize(115200);
 #ifdef HTTP_ENABLED
     g_debug_console->set_http_server(g_http_server);
+#ifdef OTA_ENABLED
+    g_debug_console->set_ota_manager(g_http_server->get_ota_manager());
+#endif
 #endif
 #endif
 

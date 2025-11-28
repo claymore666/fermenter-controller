@@ -301,6 +301,29 @@ void test_ssl_debug_command() {
     TEST_ASSERT_TRUE(output.find("simulator") != std::string::npos || output.find("TLS") != std::string::npos);
 }
 
+void test_firmware_command_help() {
+    std::string output = send_command("firmware");
+
+    // In simulator without OTA_ENABLED, returns "OTA not available"
+    // Shows either help or not available message
+    TEST_ASSERT_TRUE(
+        output.find("OTA not available") != std::string::npos ||
+        output.find("Firmware") != std::string::npos ||
+        output.find("firmware") != std::string::npos
+    );
+}
+
+void test_firmware_status_command() {
+    std::string output = send_command("firmware status");
+
+    // Should show status or "not available" message
+    TEST_ASSERT_TRUE(
+        output.find("OTA not available") != std::string::npos ||
+        output.find("Status") != std::string::npos ||
+        output.find("status") != std::string::npos
+    );
+}
+
 void test_unknown_command() {
     std::string output = send_command("invalidcmd");
 
@@ -344,6 +367,10 @@ int main(int argc, char **argv) {
     // SSL/TLS
     RUN_TEST(test_ssl_command_help);
     RUN_TEST(test_ssl_debug_command);
+
+    // Firmware/OTA
+    RUN_TEST(test_firmware_command_help);
+    RUN_TEST(test_firmware_status_command);
 
     // Sensors
     RUN_TEST(test_sensors_command);
