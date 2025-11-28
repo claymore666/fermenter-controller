@@ -1686,14 +1686,18 @@ private:
                     esp_log_level_set("esp_tls_mbedtls", ESP_LOG_INFO);
                     esp_log_level_set("esp-tls-mbedtls", ESP_LOG_INFO);
                     esp_log_level_set("mbedtls", ESP_LOG_INFO);
-                    serial_->println("TLS debug output: enabled");
+                    esp_log_level_set("esp_https_server", ESP_LOG_INFO);
+                    esp_log_level_set("httpd", ESP_LOG_INFO);
+                    serial_->println("TLS/HTTPS debug output: enabled");
                 } else if (strcmp(args[2], "off") == 0) {
                     tls_debug_enabled_ = false;
-                    esp_log_level_set("esp-tls", ESP_LOG_WARN);
-                    esp_log_level_set("esp_tls_mbedtls", ESP_LOG_WARN);
-                    esp_log_level_set("esp-tls-mbedtls", ESP_LOG_WARN);
-                    esp_log_level_set("mbedtls", ESP_LOG_WARN);
-                    serial_->println("TLS debug output: disabled");
+                    esp_log_level_set("esp-tls", ESP_LOG_NONE);
+                    esp_log_level_set("esp_tls_mbedtls", ESP_LOG_NONE);
+                    esp_log_level_set("esp-tls-mbedtls", ESP_LOG_NONE);
+                    esp_log_level_set("mbedtls", ESP_LOG_NONE);
+                    esp_log_level_set("esp_https_server", ESP_LOG_NONE);
+                    esp_log_level_set("httpd", ESP_LOG_NONE);
+                    serial_->println("TLS/HTTPS debug output: disabled (all messages hidden)");
                 } else {
                     serial_->println("Usage: ssl debug [on|off]");
                 }
