@@ -54,6 +54,7 @@ public:
         bool has_warnings = false;
         bool has_alarms = false;
         bool cert_generating = false;      // SSL certificate being generated
+        bool ota_downloading = false;      // OTA firmware download in progress
     };
 
     StatusLed(hal::ITimeInterface* time_hal, uint8_t gpio_pin = 38)
@@ -140,6 +141,10 @@ public:
             // Blue blink at 500ms during certificate generation
             target_color = Color::BLUE;
             target_pattern = Pattern::BLINK_SLOW;  // 500ms on/off
+        } else if (state_.ota_downloading) {
+            // Blue fast blink during OTA download
+            target_color = Color::BLUE;
+            target_pattern = Pattern::BLINK_FAST;  // 125ms on/off
         } else if (state_.has_warnings || !state_.wifi_connected || !state_.ntp_synced) {
             target_color = Color::YELLOW;
             target_pattern = Pattern::BLINK_SLOW;
@@ -228,6 +233,7 @@ public:
     void set_has_warnings(bool warnings) { state_.has_warnings = warnings; }
     void set_has_alarms(bool alarms) { state_.has_alarms = alarms; }
     void set_cert_generating(bool generating) { state_.cert_generating = generating; }
+    void set_ota_downloading(bool downloading) { state_.ota_downloading = downloading; }
 
     /**
      * Set LED brightness (0-255)

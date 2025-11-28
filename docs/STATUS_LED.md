@@ -13,7 +13,8 @@ WS2812 RGB LED status indicator for the fermentation controller.
 | Color | Pattern | Meaning |
 |-------|---------|---------|
 | **Blue** | Solid | Booting / Provisioning mode |
-| **Blue** | Blink | SSL certificate generation in progress |
+| **Blue** | Slow blink | SSL certificate generation in progress |
+| **Blue** | Fast blink | OTA firmware download in progress |
 | **Green** | Solid | All OK - WiFi connected, NTP synced, no errors |
 | **Yellow** | Slow blink | Warning - NTP not synced, WiFi disconnected |
 | **Red** | Solid | Error - sensor failure |
@@ -33,7 +34,7 @@ WS2812 RGB LED status indicator for the fermentation controller.
 ### Priority
 
 ```
-Red (Error/Alarm) > Yellow (Warning) > Blue (Provisioning) > Green (OK)
+Red (Error/Alarm) > Blue (Provisioning) > Blue (Cert Gen) > Blue (OTA) > Yellow (Warning) > Green (OK)
 ```
 
 ## Conditions
@@ -48,9 +49,14 @@ Red (Error/Alarm) > Yellow (Warning) > Blue (Provisioning) > Green (OK)
 - NTP not synchronized
 - Non-critical warnings
 
-### Provisioning (Blue)
+### Provisioning (Blue breathing)
 - Device in WiFi setup mode
 - Waiting for SmartConfig or Captive Portal
+
+### OTA Download (Blue fast blink)
+- Firmware download in progress
+- System paused during update
+- Returns to normal after reboot
 
 ### OK (Green)
 - All systems operational
@@ -85,6 +91,7 @@ void loop() {
     led.set_ntp_synced(ntp.is_synced());
     led.set_has_errors(safety.has_sensor_failures());
     led.set_has_alarms(safety.has_active_alarms());
+    led.set_ota_downloading(ota.is_downloading());
 
     // Update LED (call every 50ms)
     led.update();
@@ -145,10 +152,10 @@ led.set_brightness(128);  // 50% brightness
 | Pattern | Description | Used For |
 |---------|-------------|----------|
 | `SOLID` | Constant on | Normal states |
-| `BLINK_SLOW` | 1 Hz | Warnings |
-| `BLINK_FAST` | 4 Hz | Critical alarms |
+| `BLINK_SLOW` | 1 Hz (500ms) | Warnings, SSL cert gen |
+| `BLINK_FAST` | 4 Hz (125ms) | Critical alarms, OTA download |
 | `PULSE` | Fade in/out | - |
-| `BREATHE` | Slow fade | Provisioning |
+| `BREATHE` | Slow fade | Provisioning (WiFi setup) |
 
 ## Debug Console Integration
 

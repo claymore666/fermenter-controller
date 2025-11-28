@@ -193,8 +193,16 @@ static void on_ota_system_pause(bool pause) {
     if (pause) {
         ESP_LOGI("OTA", "Pausing system for OTA update");
         // WebSocket clients will timeout during OTA and reconnect after reboot
+        // Set status LED to blink blue during OTA
+        if (g_status_led) {
+            g_status_led->set_ota_downloading(true);
+        }
     } else {
         ESP_LOGI("OTA", "Resuming system after OTA");
+        // Restore normal LED state
+        if (g_status_led) {
+            g_status_led->set_ota_downloading(false);
+        }
     }
 #endif
 }
