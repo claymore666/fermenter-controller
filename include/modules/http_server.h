@@ -2160,7 +2160,7 @@ public:
             if (setpoint_str) {
                 float temp = atof(setpoint_str + 1);
                 // Validate temperature range (-10°C to 50°C for fermentation)
-                if (!isfinite(temp) || temp < -10.0f || temp > 50.0f) {
+                if (!std::isfinite(temp) || temp < -10.0f || temp > 50.0f) {
                     snprintf(response, response_size,
                         "{\"error\":\"Setpoint out of range (-10 to 50°C)\"}");
                     return 400;
@@ -2226,7 +2226,7 @@ public:
             kp_str = strchr(kp_str, ':');
             if (kp_str) {
                 float val = atof(kp_str + 1);
-                if (!isfinite(val) || val < 0.0f || val > 100.0f) {
+                if (!std::isfinite(val) || val < 0.0f || val > 100.0f) {
                     snprintf(response, response_size, "{\"error\":\"kp out of range (0-100)\"}");
                     return 400;
                 }
@@ -2237,7 +2237,7 @@ public:
             ki_str = strchr(ki_str, ':');
             if (ki_str) {
                 float val = atof(ki_str + 1);
-                if (!isfinite(val) || val < 0.0f || val > 50.0f) {
+                if (!std::isfinite(val) || val < 0.0f || val > 50.0f) {
                     snprintf(response, response_size, "{\"error\":\"ki out of range (0-50)\"}");
                     return 400;
                 }
@@ -2248,7 +2248,7 @@ public:
             kd_str = strchr(kd_str, ':');
             if (kd_str) {
                 float val = atof(kd_str + 1);
-                if (!isfinite(val) || val < 0.0f || val > 20.0f) {
+                if (!std::isfinite(val) || val < 0.0f || val > 20.0f) {
                     snprintf(response, response_size, "{\"error\":\"kd out of range (0-20)\"}");
                     return 400;
                 }

@@ -585,6 +585,7 @@ bool system_init(bool config_loaded = false) {
     );
     g_debug_console->initialize(115200);
 
+#ifdef ESP32_BUILD
     // Suppress TLS/HTTPS handshake error messages by default
     // These are often spurious (client disconnects, timeouts, etc)
     // Use 'ssl debug on' to re-enable for debugging
@@ -594,6 +595,7 @@ bool system_init(bool config_loaded = false) {
     esp_log_level_set("mbedtls", ESP_LOG_NONE);
     esp_log_level_set("esp_https_server", ESP_LOG_NONE);
     esp_log_level_set("httpd", ESP_LOG_NONE);
+#endif
 
 #ifdef HTTP_ENABLED
     g_debug_console->set_http_server(g_http_server);
