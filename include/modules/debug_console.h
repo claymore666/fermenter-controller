@@ -1030,6 +1030,15 @@ private:
             }
             printf("  Method: %s\r\n", method);
         } else if (strcmp(args[1], "set") == 0 && argc >= 4) {
+            // Validate credential lengths (SSID max 32, password max 63)
+            if (strlen(args[2]) > 32) {
+                serial_->println("Error: SSID too long (max 32 characters)");
+                return;
+            }
+            if (strlen(args[3]) > 63) {
+                serial_->println("Error: Password too long (max 63 characters)");
+                return;
+            }
             serial_->println("Setting WiFi credentials...");
             if (wifi_prov_->provision(args[2], args[3])) {
                 printf("Connected to %s\r\n", args[2]);

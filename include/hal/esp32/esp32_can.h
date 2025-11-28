@@ -92,6 +92,13 @@ public:
     bool send(const CANMessage& msg, uint32_t timeout_ms = 100) override {
         if (!initialized_) return false;
 
+        // Validate message length (CAN max is 8 bytes)
+        if (msg.len > 8) {
+            ESP_LOGW(TAG, "Invalid CAN message length: %d (max 8)", msg.len);
+            error_count_++;
+            return false;
+        }
+
         // Check for bus-off state and attempt recovery
         twai_status_info_t status;
         if (twai_get_status_info(&status) == ESP_OK) {
