@@ -1475,7 +1475,7 @@
             } else {
                 container.innerHTML = alarms.map(a => `
                     <div class="alert alert-danger">
-                        <strong>Fermenter ${a.fermenter}:</strong>
+                        <strong>Fermenter ${escapeHtml(a.fermenter)}:</strong>
                         ${a.temp_high ? 'Temperature HIGH ' : ''}
                         ${a.temp_low ? 'Temperature LOW ' : ''}
                         ${a.pressure_high ? 'Pressure HIGH ' : ''}
