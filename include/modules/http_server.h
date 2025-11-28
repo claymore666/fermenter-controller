@@ -2837,6 +2837,23 @@ public:
             }
         }
 
+        // Validate URL scheme to prevent SSRF attacks
+        if (url != nullptr) {
+            // Only allow http:// and https:// schemes
+            if (strncmp(url, "https://", 8) != 0 && strncmp(url, "http://", 7) != 0) {
+                snprintf(response, response_size,
+                    "{\"error\":\"Invalid URL scheme. Only http:// and https:// allowed\"}");
+                return 400;
+            }
+            // Block file://, ftp://, gopher://, etc.
+            if (strstr(url, "file://") || strstr(url, "ftp://") ||
+                strstr(url, "gopher://") || strstr(url, "dict://")) {
+                snprintf(response, response_size,
+                    "{\"error\":\"URL scheme not allowed\"}");
+                return 400;
+            }
+        }
+
         OtaResult result = ota_manager_->download_from_url(url);
 
         snprintf(response, response_size,

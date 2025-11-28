@@ -1837,6 +1837,14 @@ private:
             // Download from URL
             const char* url = (argc >= 3) ? args[2] : nullptr;
 
+            // Validate URL scheme to prevent SSRF
+            if (url != nullptr) {
+                if (strncmp(url, "https://", 8) != 0 && strncmp(url, "http://", 7) != 0) {
+                    serial_->println("Error: Invalid URL scheme. Only http:// and https:// allowed");
+                    return;
+                }
+            }
+
             if (url) {
                 printf("Starting download from: %s\r\n", url);
             } else {
